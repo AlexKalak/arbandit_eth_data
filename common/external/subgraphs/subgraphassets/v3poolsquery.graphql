@@ -1,0 +1,12 @@
+query GetPools($first: Int!, $skip: Int!) {
+  pools(first: $first, skip:$skip){
+    id
+    feeTier
+    token0 {
+      id
+    }
+    token1 {
+      id
+    }
+  }
+}

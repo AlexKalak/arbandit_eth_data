@@ -3,8 +3,8 @@ package v2pairexchangable
 import (
 	"math/big"
 
+	"github.com/alexkalak/go_market_analyze/common/models"
 	"github.com/alexkalak/go_market_analyze/src/errors/exchangeerrors"
-	"github.com/alexkalak/go_market_analyze/src/models"
 )
 
 type ExchangableUniswapV2Pair struct {

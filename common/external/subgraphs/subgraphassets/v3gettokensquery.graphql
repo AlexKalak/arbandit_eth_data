@@ -1,0 +1,8 @@
+query GetTokens($first: Int!, $skip: Int!) {
+  tokens(first: $first, skip:$skip){
+    id
+    decimals
+    name
+    symbol
+  }
+}

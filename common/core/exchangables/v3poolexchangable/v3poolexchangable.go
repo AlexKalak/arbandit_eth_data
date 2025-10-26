@@ -6,8 +6,8 @@ import (
 	"math/big"
 
 	"github.com/ALTree/bigfloat"
+	"github.com/alexkalak/go_market_analyze/common/models"
 	"github.com/alexkalak/go_market_analyze/src/errors/exchangeerrors"
-	"github.com/alexkalak/go_market_analyze/src/models"
 )
 
 var Q96 = new(big.Int).Lsh(big.NewInt(1), 96)

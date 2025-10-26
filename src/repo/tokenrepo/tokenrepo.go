@@ -19,6 +19,7 @@ type TokenRepo interface {
 	GetTokensByChainID(chainID uint) ([]models.Token, error)
 	UpdateTokens(tokens []models.Token) error
 }
+
 type tokenRepo struct {
 	pgDatabase *pgdatabase.PgDatabase
 }

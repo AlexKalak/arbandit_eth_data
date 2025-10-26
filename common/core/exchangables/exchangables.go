@@ -3,7 +3,7 @@ package exchangables
 import (
 	"math/big"
 
-	"github.com/alexkalak/go_market_analyze/src/models"
+	"github.com/alexkalak/go_market_analyze/common/models"
 )
 
 type Exchangable interface {
