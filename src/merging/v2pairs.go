@@ -19,7 +19,6 @@ func (m *Merger) MergeV2PairsNotFilled(chainID uint) error {
 		fmt.Println("Error getting tokens from db")
 		return err
 	}
-	fmt.Println("Len tokens: ", len(tokens))
 
 	tokensMap := map[string]*models.Token{}
 	for _, token := range tokens {
