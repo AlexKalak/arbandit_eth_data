@@ -56,8 +56,8 @@ func (r *v2pairRepo) GetPairs() ([]models.UniswapV2Pair, error) {
 		Select(
 			models.UNISWAP_V2_PAIR_ADDRESS,
 			models.UNISWAP_V2_PAIR_CHAINID,
-			models.UNISWAP_V2_PAIR_TOKEN0,
-			models.UNISWAP_V2_PAIR_TOKEN1,
+			models.UNISWAP_V2_PAIR_TOKEN0_ADDRESS,
+			models.UNISWAP_V2_PAIR_TOKEN1_ADDRESS,
 			models.UNISWAP_V2_PAIR_AMOUNT0,
 			models.UNISWAP_V2_PAIR_AMOUNT1,
 			models.UNISWAP_V2_PAIR_FEE_TIER,
@@ -126,8 +126,8 @@ func (r *v2pairRepo) GetPairsByChainID(chainID uint) ([]models.UniswapV2Pair, er
 		Select(
 			models.UNISWAP_V2_PAIR_ADDRESS,
 			models.UNISWAP_V2_PAIR_CHAINID,
-			models.UNISWAP_V2_PAIR_TOKEN0,
-			models.UNISWAP_V2_PAIR_TOKEN1,
+			models.UNISWAP_V2_PAIR_TOKEN0_ADDRESS,
+			models.UNISWAP_V2_PAIR_TOKEN1_ADDRESS,
 			models.UNISWAP_V2_PAIR_AMOUNT0,
 			models.UNISWAP_V2_PAIR_AMOUNT1,
 			models.UNISWAP_V2_PAIR_FEE_TIER,
@@ -197,8 +197,8 @@ func (r *v2pairRepo) GetNonDustyPairsByChainID(chainID uint) ([]models.UniswapV2
 		Select(
 			models.UNISWAP_V2_PAIR_ADDRESS,
 			models.UNISWAP_V2_PAIR_CHAINID,
-			models.UNISWAP_V2_PAIR_TOKEN0,
-			models.UNISWAP_V2_PAIR_TOKEN1,
+			models.UNISWAP_V2_PAIR_TOKEN0_ADDRESS,
+			models.UNISWAP_V2_PAIR_TOKEN1_ADDRESS,
 			models.UNISWAP_V2_PAIR_AMOUNT0,
 			models.UNISWAP_V2_PAIR_AMOUNT1,
 			models.UNISWAP_V2_PAIR_FEE_TIER,

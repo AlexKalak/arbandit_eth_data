@@ -66,8 +66,8 @@ func (r *v3poolDBRepo) GetPoolByPoolIdentificator(poolIdentificator models.V3Poo
 		Select(
 			models.UNISWAP_V3_POOL_ADDRESS,
 			models.UNISWAP_V3_POOL_CHAINID,
-			models.UNISWAP_V3_POOL_TOKEN0,
-			models.UNISWAP_V3_POOL_TOKEN1,
+			models.UNISWAP_V3_POOL_TOKEN0_ADDRESS,
+			models.UNISWAP_V3_POOL_TOKEN1_ADDRESS,
 			models.UNISWAP_V3_POOL_SQRTPRICEX96,
 			models.UNISWAP_V3_POOL_LIQUIDITY,
 
@@ -167,8 +167,8 @@ func (r *v3poolDBRepo) GetPools() ([]models.UniswapV3Pool, error) {
 		Select(
 			models.UNISWAP_V3_POOL_ADDRESS,
 			models.UNISWAP_V3_POOL_CHAINID,
-			models.UNISWAP_V3_POOL_TOKEN0,
-			models.UNISWAP_V3_POOL_TOKEN1,
+			models.UNISWAP_V3_POOL_TOKEN0_ADDRESS,
+			models.UNISWAP_V3_POOL_TOKEN1_ADDRESS,
 			models.UNISWAP_V3_POOL_SQRTPRICEX96,
 			models.UNISWAP_V3_POOL_LIQUIDITY,
 
@@ -270,8 +270,8 @@ func (r *v3poolDBRepo) GetPoolsByChainID(chainID uint) ([]models.UniswapV3Pool, 
 		Select(
 			models.UNISWAP_V3_POOL_ADDRESS,
 			models.UNISWAP_V3_POOL_CHAINID,
-			models.UNISWAP_V3_POOL_TOKEN0,
-			models.UNISWAP_V3_POOL_TOKEN1,
+			models.UNISWAP_V3_POOL_TOKEN0_ADDRESS,
+			models.UNISWAP_V3_POOL_TOKEN1_ADDRESS,
 			models.UNISWAP_V3_POOL_SQRTPRICEX96,
 			models.UNISWAP_V3_POOL_LIQUIDITY,
 
@@ -374,8 +374,8 @@ func (r *v3poolDBRepo) GetPoolsByChainIDOrdered(chainID uint) ([]models.UniswapV
 		Select(
 			models.UNISWAP_V3_POOL_ADDRESS,
 			models.UNISWAP_V3_POOL_CHAINID,
-			models.UNISWAP_V3_POOL_TOKEN0,
-			models.UNISWAP_V3_POOL_TOKEN1,
+			models.UNISWAP_V3_POOL_TOKEN0_ADDRESS,
+			models.UNISWAP_V3_POOL_TOKEN1_ADDRESS,
 			models.UNISWAP_V3_POOL_SQRTPRICEX96,
 			models.UNISWAP_V3_POOL_LIQUIDITY,
 
@@ -479,8 +479,8 @@ func (r *v3poolDBRepo) GetPoolsByChainIDWith0BlockNumberOrdered(chainID uint) ([
 		Select(
 			models.UNISWAP_V3_POOL_ADDRESS,
 			models.UNISWAP_V3_POOL_CHAINID,
-			models.UNISWAP_V3_POOL_TOKEN0,
-			models.UNISWAP_V3_POOL_TOKEN1,
+			models.UNISWAP_V3_POOL_TOKEN0_ADDRESS,
+			models.UNISWAP_V3_POOL_TOKEN1_ADDRESS,
 			models.UNISWAP_V3_POOL_SQRTPRICEX96,
 			models.UNISWAP_V3_POOL_LIQUIDITY,
 
@@ -583,8 +583,8 @@ func (r *v3poolDBRepo) GetNotDustyPoolsByChainID(chainID uint) ([]models.Uniswap
 		Select(
 			models.UNISWAP_V3_POOL_ADDRESS,
 			models.UNISWAP_V3_POOL_CHAINID,
-			models.UNISWAP_V3_POOL_TOKEN0,
-			models.UNISWAP_V3_POOL_TOKEN1,
+			models.UNISWAP_V3_POOL_TOKEN0_ADDRESS,
+			models.UNISWAP_V3_POOL_TOKEN1_ADDRESS,
 			models.UNISWAP_V3_POOL_SQRTPRICEX96,
 			models.UNISWAP_V3_POOL_LIQUIDITY,
 
@@ -930,12 +930,12 @@ func (r *v3poolDBRepo) UpdatePoolColumns(pool models.UniswapV3Pool, columns []st
 	}
 
 	queryMap := map[string]interface{}{
-		models.UNISWAP_V3_POOL_ADDRESS:      pool.Address,
-		models.UNISWAP_V3_POOL_CHAINID:      pool.ChainID,
-		models.UNISWAP_V3_POOL_TOKEN0:       pool.Token0,
-		models.UNISWAP_V3_POOL_TOKEN1:       pool.Token1,
-		models.UNISWAP_V3_POOL_SQRTPRICEX96: pool.SqrtPriceX96.String(),
-		models.UNISWAP_V3_POOL_LIQUIDITY:    pool.Liquidity.String(),
+		models.UNISWAP_V3_POOL_ADDRESS:        pool.Address,
+		models.UNISWAP_V3_POOL_CHAINID:        pool.ChainID,
+		models.UNISWAP_V3_POOL_TOKEN0_ADDRESS: pool.Token0,
+		models.UNISWAP_V3_POOL_TOKEN1_ADDRESS: pool.Token1,
+		models.UNISWAP_V3_POOL_SQRTPRICEX96:   pool.SqrtPriceX96.String(),
+		models.UNISWAP_V3_POOL_LIQUIDITY:      pool.Liquidity.String(),
 
 		models.UNISWAP_V3_POOL_TICK:         pool.Tick,
 		models.UNISWAP_V3_POOL_TICK_SPACING: pool.TickSpacing,
