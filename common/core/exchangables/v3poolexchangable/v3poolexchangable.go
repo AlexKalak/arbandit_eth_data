@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/ALTree/bigfloat"
 	"github.com/alexkalak/go_market_analyze/common/core/exchangables/exchangableerrors"
 	"github.com/alexkalak/go_market_analyze/common/models"
 )
@@ -222,7 +221,6 @@ func (e *ExchangableUniswapV3PoolRaw) ImitateSwap(amountIn *big.Int, zfo bool) (
 		nextTick := 0
 		if zfo {
 			nextTick = currentTick - e.Pool.TickSpacing
-
 		} else {
 			nextTick = currentTick + e.Pool.TickSpacing
 		}
@@ -230,6 +228,10 @@ func (e *ExchangableUniswapV3PoolRaw) ImitateSwap(amountIn *big.Int, zfo bool) (
 		if nextTick < e.Pool.TickLower || nextTick > e.Pool.TickUpper {
 			return nil, errors.New("tick out of space")
 
+		}
+
+		if nextTick < -887272 || nextTick > 887272 {
+			return nil, errors.New("tick out of range")
 		}
 
 		sqrtPTarget := tickToSqrtPriceX96(nextTick)
@@ -313,9 +315,9 @@ func (e *ExchangableUniswapV3PoolRaw) ImitateSwapWithLog(amountIn *big.Int, zfo 
 		return nil, exchangableerrors.ErrInvalidPool
 	}
 
-	if e.Pool.TickLower == 0 || e.Pool.TickUpper == 0 {
-		return nil, errors.New("no lower upper tick info")
-	}
+	// if e.Pool.TickLower == 0 || e.Pool.TickUpper == 0 {
+	// 	return nil, errors.New("no lower upper tick info")
+	// }
 
 	remaining := new(big.Int).Set(amountInAfterFee)
 	amountOutTotal := new(big.Int)
@@ -333,9 +335,13 @@ func (e *ExchangableUniswapV3PoolRaw) ImitateSwapWithLog(amountIn *big.Int, zfo 
 			nextTick = currentTick + 1
 		}
 
-		if nextTick < e.Pool.TickLower || nextTick > e.Pool.TickUpper {
-			return nil, errors.New("tick out of space")
+		// if nextTick < e.Pool.TickLower || nextTick > e.Pool.TickUpper {
+		// 	return nil, errors.New("tick out of space")
+		//
+		// }
 
+		if nextTick < -887272 || nextTick > 887272 {
+			return nil, errors.New("tick out of range")
 		}
 
 		sqrtPTarget := tickToSqrtPriceX96(nextTick)
@@ -401,14 +407,11 @@ func (e *ExchangableUniswapV3PoolRaw) ImitateSwapWithLog(amountIn *big.Int, zfo 
 }
 
 func (e *ExchangableUniswapV3PoolRaw) GetRate(zfo bool) *big.Float {
-	price := bigfloat.Pow(divideSqrtPriceX96(e.Pool.SqrtPriceX96), big.NewFloat(2))
 	if zfo {
-		return price
+		return e.Pool.Zfo10USDRate
 	}
 
-	res := price
-	res.Quo(big.NewFloat(1), res)
-	return res
+	return e.Pool.NonZfo10USDRate
 }
 
 func (e *ExchangableUniswapV3PoolRaw) Address() string {

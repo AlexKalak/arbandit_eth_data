@@ -3,10 +3,13 @@ package poolupdaterservice
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 
 	"github.com/alexkalak/go_market_analyze/common/models"
 	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v3poolsrepo"
+	"github.com/alexkalak/go_market_analyze/common/repo/tokenrepo"
+	"github.com/alexkalak/go_market_analyze/common/repo/transactionrepo/v3transactionrepo"
 )
 
 type PoolUpdaterService interface {
@@ -14,8 +17,10 @@ type PoolUpdaterService interface {
 }
 
 type PoolUpdaterServiceDependencies struct {
-	V3PoolDBRepo    v3poolsrepo.V3PoolDBRepo
-	V3PoolCacheRepo v3poolsrepo.V3PoolCacheRepo
+	V3PoolDBRepo        v3poolsrepo.V3PoolDBRepo
+	V3TransactionDBRepo v3transactionrepo.V3TransactionDBRepo
+	V3PoolCacheRepo     v3poolsrepo.V3PoolCacheRepo
+	TokenDBRepo         tokenrepo.TokenRepo
 }
 
 func (d *PoolUpdaterServiceDependencies) validate() error {
@@ -26,6 +31,14 @@ func (d *PoolUpdaterServiceDependencies) validate() error {
 	if d.V3PoolCacheRepo == nil {
 
 		return errors.New("pool updater service dependencies V3PoolCacheRepo cannot be nil")
+	}
+
+	if d.TokenDBRepo == nil {
+		return errors.New("pool updater service dependencies TokenRepo cannot be nil")
+	}
+
+	if d.V3TransactionDBRepo == nil {
+		return errors.New("pool updater service dependencies V3TransactionDBRepo cannot be nil")
 	}
 
 	return nil
@@ -54,16 +67,17 @@ func (d *PoolUpdaterServiceConfig) validate() error {
 }
 
 type poolUpdaterService struct {
-	dbRepo    v3poolsrepo.V3PoolDBRepo
-	cacheRepo v3poolsrepo.V3PoolCacheRepo
+	tokensMap map[models.TokenIdentificator]*models.Token
 
 	currentCheckingBlock    uint64
 	currentBlockPoolChanges map[models.V3PoolIdentificator]models.UniswapV3Pool
 
 	config PoolUpdaterServiceConfig
 
-	v3PoolDBRepo    v3poolsrepo.V3PoolDBRepo
-	v3PoolCacheRepo v3poolsrepo.V3PoolCacheRepo
+	tokenDBRepo         tokenrepo.TokenRepo
+	v3PoolDBRepo        v3poolsrepo.V3PoolDBRepo
+	v3PoolCacheRepo     v3poolsrepo.V3PoolCacheRepo
+	v3TransactionDBRepo v3transactionrepo.V3TransactionDBRepo
 }
 
 func New(config PoolUpdaterServiceConfig, dependencies PoolUpdaterServiceDependencies) (PoolUpdaterService, error) {
@@ -75,11 +89,23 @@ func New(config PoolUpdaterServiceConfig, dependencies PoolUpdaterServiceDepende
 	}
 
 	service := poolUpdaterService{
+		tokenDBRepo:             dependencies.TokenDBRepo,
 		config:                  config,
 		v3PoolDBRepo:            dependencies.V3PoolDBRepo,
 		v3PoolCacheRepo:         dependencies.V3PoolCacheRepo,
+		v3TransactionDBRepo:     dependencies.V3TransactionDBRepo,
 		currentCheckingBlock:    0,
 		currentBlockPoolChanges: map[models.V3PoolIdentificator]models.UniswapV3Pool{},
+	}
+
+	tokens, err := service.tokenDBRepo.GetTokensByChainID(config.ChainID)
+	if err != nil {
+		return nil, err
+	}
+
+	service.tokensMap = map[models.TokenIdentificator]*models.Token{}
+	for _, token := range tokens {
+		service.tokensMap[token.GetIdentificator()] = &token
 	}
 
 	pools, err := service.v3PoolDBRepo.GetPoolsByChainID(config.ChainID)
@@ -93,14 +119,24 @@ func New(config PoolUpdaterServiceConfig, dependencies PoolUpdaterServiceDepende
 }
 
 func (s *poolUpdaterService) ConfigureCache(pools []models.UniswapV3Pool) error {
-	var minBlockNumber int64 = math.MaxInt64
+	var maxBlockNumber int64 = math.MinInt64
 	for _, pool := range pools {
-		if int64(pool.BlockNumber) < minBlockNumber {
-			minBlockNumber = int64(pool.BlockNumber)
+		if int64(pool.BlockNumber) > maxBlockNumber {
+			maxBlockNumber = int64(pool.BlockNumber)
 		}
 	}
 
+	if maxBlockNumber == math.MinInt64 {
+		return errors.New("unable to define block_number for pools")
+	}
+
 	err := s.v3PoolCacheRepo.ClearPools(s.config.ChainID)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Setting block number to: ", maxBlockNumber)
+	err = s.v3PoolCacheRepo.SetBlockNumber(s.config.ChainID, uint64(maxBlockNumber))
 	if err != nil {
 		return err
 	}

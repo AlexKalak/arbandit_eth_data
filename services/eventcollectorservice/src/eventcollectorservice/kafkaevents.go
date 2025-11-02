@@ -22,6 +22,7 @@ type poolEvent struct {
 	Data        interface{} `json:"data"`
 	BlockNumber uint64      `json:"block_number"`
 	Address     string      `json:"address"`
+	TxHash      string      `json:"tx_hash"`
 }
 
 type kafkaClientConfig struct {

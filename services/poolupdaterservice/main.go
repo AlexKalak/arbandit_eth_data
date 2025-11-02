@@ -6,6 +6,8 @@ import (
 	"github.com/alexkalak/go_market_analyze/common/helpers/envhelper"
 	"github.com/alexkalak/go_market_analyze/common/periphery/pgdatabase"
 	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v3poolsrepo"
+	"github.com/alexkalak/go_market_analyze/common/repo/tokenrepo"
+	"github.com/alexkalak/go_market_analyze/common/repo/transactionrepo/v3transactionrepo"
 	poolupdaterservice "github.com/alexkalak/go_market_analyze/services/poolupdaterservice/src"
 )
 
@@ -30,12 +32,12 @@ func main() {
 		panic(err)
 	}
 
-	// tokenRepo, err := tokenrepo.New(tokenrepo.TokenRepoDependencies{
-	// 	Database: pgDB,
-	// })
-	// if err != nil {
-	// 	panic(err)
-	// }
+	tokenRepo, err := tokenrepo.New(tokenrepo.TokenRepoDependencies{
+		Database: pgDB,
+	})
+	if err != nil {
+		panic(err)
+	}
 
 	v3PoolsDBRepo, err := v3poolsrepo.NewDBRepo(v3poolsrepo.V3PoolDBRepoDependencies{
 		Database: pgDB,
@@ -51,19 +53,29 @@ func main() {
 		panic(err)
 	}
 
+	v3TransactionDBRepo, err := v3transactionrepo.NewDBRepo(v3transactionrepo.V3TransactionDBRepoDependencies{
+		Database: pgDB,
+	})
+	if err != nil {
+		panic(err)
+	}
+
 	poolUpdaterServiceConfig := poolupdaterservice.PoolUpdaterServiceConfig{
 		ChainID:                 chainID,
 		KafkaServer:             env.KAFKA_SERVER,
 		KafkaUpdateV3PoolsTopic: env.KAFKA_UPDATE_V3_POOLS_TOPIC,
 	}
 	poolUpdaterServiceDependencies := poolupdaterservice.PoolUpdaterServiceDependencies{
-		V3PoolDBRepo:    v3PoolsDBRepo,
-		V3PoolCacheRepo: v3PoolsCacheRepo,
+		TokenDBRepo:         tokenRepo,
+		V3PoolDBRepo:        v3PoolsDBRepo,
+		V3PoolCacheRepo:     v3PoolsCacheRepo,
+		V3TransactionDBRepo: v3TransactionDBRepo,
 	}
 	poolUpdaterService, err := poolupdaterservice.New(poolUpdaterServiceConfig, poolUpdaterServiceDependencies)
 	if err != nil {
 		panic(err)
 	}
+
 	poolUpdaterService.Start(context.Background())
 
 }

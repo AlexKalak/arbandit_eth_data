@@ -27,7 +27,7 @@ type v3ExchangeABI struct {
 }
 
 type RPCEventsCollectorService interface {
-	StartFromBlock(ctx context.Context, addresses []common.Address, blockNumber *big.Int) error
+	StartFromBlockV3(ctx context.Context, addresses []common.Address, blockNumber *big.Int) error
 }
 
 type RPCEventsCollectorServiceConfig struct {
@@ -71,6 +71,8 @@ const (
 	_UNISWAP_V3_ABI_NAME     abiName = "uniswap_v3_events"
 	_PANCAKESWAP_V3_ABI_NAME abiName = "pancakeswap_v3_events"
 	_SUSHISWAP_V3_ABI_NAME   abiName = "sushiswap_v3_events"
+
+	_UNISWAP_V2_ABI_Name abiName = "uniswap_v2_events"
 )
 
 type rpcEventsCollector struct {

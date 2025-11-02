@@ -69,8 +69,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
 	var chainID uint = 1
-	// blockNumber := big.NewInt(23678329)
+	// blockNumber := 23704756
 
 	err = merger.ValidateV3PoolsAndComputeAverageUSDPrice(chainID)
 	if err != nil {

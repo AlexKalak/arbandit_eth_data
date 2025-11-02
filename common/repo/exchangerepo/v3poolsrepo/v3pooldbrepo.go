@@ -11,6 +11,7 @@ import (
 
 type V3PoolDBRepo interface {
 	GetPoolByPoolIdentificator(poolIdentificator models.V3PoolIdentificator) (models.UniswapV3Pool, error)
+
 	GetPools() ([]models.UniswapV3Pool, error)
 	GetPoolsByChainID(chainID uint) ([]models.UniswapV3Pool, error)
 	GetPoolsByChainIDOrdered(chainID uint) ([]models.UniswapV3Pool, error)
@@ -20,6 +21,11 @@ type V3PoolDBRepo interface {
 	UpdatePoolsIsDusty(pools []models.UniswapV3Pool) error
 	SetAllPoolsToDusty(chainID uint) error
 	UpdatePoolsLowerUpperNearTicks(pools []models.UniswapV3Pool) error
+
+	UpdatePool(pool models.UniswapV3Pool) error
+	UpdatePoolLiquidityAndBlockNumber(pool models.UniswapV3Pool, blockNumber uint64) error
+	UpdatePoolLiquiditySqrtPriceTickAndBlockNumber(pool models.UniswapV3Pool, blockNumber uint64) error
+	UpdatePoolColumns(pool models.UniswapV3Pool, columns []string) error
 }
 
 var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
@@ -796,4 +802,171 @@ func (r *v3poolDBRepo) UpdatePoolsLowerUpperNearTicks(pools []models.UniswapV3Po
 	}
 
 	return tx.Commit()
+}
+
+func (r *v3poolDBRepo) UpdatePool(pool models.UniswapV3Pool) error {
+	db, err := r.pgDatabase.GetDB()
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	queryMap := map[string]any{
+		models.UNISWAP_V3_POOL_SQRTPRICEX96: pool.SqrtPriceX96.String(),
+		models.UNISWAP_V3_POOL_LIQUIDITY:    pool.Liquidity.String(),
+
+		models.UNISWAP_V3_POOL_TICK:         pool.Tick,
+		models.UNISWAP_V3_POOL_TICK_SPACING: pool.TickSpacing,
+		models.UNISWAP_V3_POOL_TICK_LOWER:   pool.TickLower,
+		models.UNISWAP_V3_POOL_TICK_UPPER:   pool.TickUpper,
+		models.UNISWAP_V3_POOL_NEAR_TICKS:   pool.NearTicksJSON,
+
+		models.UNISWAP_V3_POOL_FEE_TIER:     pool.FeeTier,
+		models.UNISWAP_V3_POOL_IS_DUSTY:     pool.IsDusty,
+		models.UNISWAP_V3_POOL_BLOCK_NUMBER: pool.BlockNumber,
+
+		models.UNISWAP_V3_ZFO_10USD_RATE:     pool.Zfo10USDRate,
+		models.UNISWAP_V3_NON_ZFO_10USD_RATE: pool.NonZfo10USDRate,
+	}
+
+	query := psql.
+		Update(
+			models.UNISWAP_V3_POOL_TABLE,
+		).SetMap(queryMap).
+		Where(sq.Eq{models.UNISWAP_V3_POOL_ADDRESS: pool.Address, models.UNISWAP_V3_POOL_CHAINID: pool.ChainID})
+
+	_, err = query.RunWith(tx).Exec()
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *v3poolDBRepo) UpdatePoolLiquidityAndBlockNumber(pool models.UniswapV3Pool, blockNumber uint64) error {
+	db, err := r.pgDatabase.GetDB()
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	queryMap := map[string]any{
+		models.UNISWAP_V3_POOL_LIQUIDITY:    pool.Liquidity.String(),
+		models.UNISWAP_V3_POOL_BLOCK_NUMBER: blockNumber,
+	}
+
+	query := psql.
+		Update(
+			models.UNISWAP_V3_POOL_TABLE,
+		).SetMap(queryMap).
+		Where(sq.Eq{models.UNISWAP_V3_POOL_ADDRESS: pool.Address, models.UNISWAP_V3_POOL_CHAINID: pool.ChainID})
+
+	_, err = query.RunWith(tx).Exec()
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *v3poolDBRepo) UpdatePoolLiquiditySqrtPriceTickAndBlockNumber(pool models.UniswapV3Pool, blockNumber uint64) error {
+	db, err := r.pgDatabase.GetDB()
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	queryMap := map[string]any{
+		models.UNISWAP_V3_POOL_SQRTPRICEX96: pool.SqrtPriceX96.String(),
+		models.UNISWAP_V3_POOL_LIQUIDITY:    pool.Liquidity.String(),
+		models.UNISWAP_V3_POOL_TICK:         pool.Tick,
+		models.UNISWAP_V3_POOL_BLOCK_NUMBER: pool.BlockNumber,
+	}
+
+	query := psql.
+		Update(
+			models.UNISWAP_V3_POOL_TABLE,
+		).SetMap(queryMap).
+		Where(sq.Eq{models.UNISWAP_V3_POOL_ADDRESS: pool.Address, models.UNISWAP_V3_POOL_CHAINID: pool.ChainID})
+
+	_, err = query.RunWith(tx).Exec()
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *v3poolDBRepo) UpdatePoolColumns(pool models.UniswapV3Pool, columns []string) error {
+	db, err := r.pgDatabase.GetDB()
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	colMap := make(map[string]any)
+	for _, col := range columns {
+		colMap[col] = new(any)
+	}
+
+	arrayToDelete := make([]string, 0)
+	for _, column := range columns {
+		if _, ok := colMap[column]; ok {
+			continue
+		}
+		arrayToDelete = append(arrayToDelete, column)
+	}
+
+	queryMap := map[string]interface{}{
+		models.UNISWAP_V3_POOL_ADDRESS:      pool.Address,
+		models.UNISWAP_V3_POOL_CHAINID:      pool.ChainID,
+		models.UNISWAP_V3_POOL_TOKEN0:       pool.Token0,
+		models.UNISWAP_V3_POOL_TOKEN1:       pool.Token1,
+		models.UNISWAP_V3_POOL_SQRTPRICEX96: pool.SqrtPriceX96.String(),
+		models.UNISWAP_V3_POOL_LIQUIDITY:    pool.Liquidity.String(),
+
+		models.UNISWAP_V3_POOL_TICK:         pool.Tick,
+		models.UNISWAP_V3_POOL_TICK_SPACING: pool.TickSpacing,
+		models.UNISWAP_V3_POOL_TICK_LOWER:   pool.TickLower,
+		models.UNISWAP_V3_POOL_TICK_UPPER:   pool.TickUpper,
+		models.UNISWAP_V3_POOL_NEAR_TICKS:   pool.NearTicksJSON,
+
+		models.UNISWAP_V3_POOL_FEE_TIER:     pool.FeeTier,
+		models.UNISWAP_V3_POOL_IS_DUSTY:     pool.IsDusty,
+		models.UNISWAP_V3_POOL_BLOCK_NUMBER: pool.BlockNumber,
+
+		models.UNISWAP_V3_ZFO_10USD_RATE:     pool.Zfo10USDRate.Text('f', -1),
+		models.UNISWAP_V3_NON_ZFO_10USD_RATE: pool.NonZfo10USDRate.Text('f', -1),
+	}
+
+	for _, colToDelete := range arrayToDelete {
+		delete(queryMap, colToDelete)
+
+	}
+
+	query := psql.
+		Update(
+			models.UNISWAP_V3_POOL_TABLE,
+		).SetMap(queryMap).
+		Where(sq.Eq{models.UNISWAP_V3_POOL_ADDRESS: pool.Address, models.UNISWAP_V3_POOL_CHAINID: pool.ChainID})
+
+	_, err = query.RunWith(tx).Exec()
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+
 }

@@ -102,19 +102,24 @@ func ValidateV3PoolsAndGetAverageUSDPriceForTokens(
 	// How much away from stable coin can pairs checking token be
 	checkingDeepness := 4
 	for range checkingDeepness {
+		amountErrs := 0
 		fmt.Println("Checking deepness: ", checkingDeepness)
 		for _, pool := range pools {
 			if pool.Liquidity.Cmp(big.NewInt(0)) == 0 || pool.SqrtPriceX96.Cmp(big.NewInt(0)) == 0 {
 				continue
 			}
 
-			checkPairForDefinedTokens(tokenDataMap, tokensMap, checkedPools, &pool)
+			err := checkPairForDefinedTokens(tokenDataMap, tokensMap, checkedPools, &pool)
+			if err != nil {
+				amountErrs++
+			}
 			if !pool.IsDusty {
 				if _, ok := notDustyPools[pool.Address]; !ok {
 					notDustyPools[pool.Address] = &pool
 				}
 			}
 		}
+		fmt.Println("Amount err: ", amountErrs)
 	}
 
 	fmt.Println("not dusty pools before checking: ", len(notDustyPools))
@@ -147,15 +152,14 @@ func ValidateV3PoolsAndGetAverageUSDPriceForTokens(
 func UpdateRateFor10USD(pool *models.UniswapV3Pool, token0 *models.Token, token1 *models.Token) error {
 	if token0.DefiUSDPrice.Cmp(big.NewFloat(0)) == 0 ||
 		token1.DefiUSDPrice.Cmp(big.NewFloat(0)) == 0 {
-		fmt.Println("invalid defi price", token0.DefiUSDPrice, token1.DefiUSDPrice)
-		fmt.Println(helpers.GetJSONString(token0))
-		fmt.Println(helpers.GetJSONString(token1))
+		// fmt.Println("invalid defi price", token0.DefiUSDPrice, token1.DefiUSDPrice)
+		// fmt.Println(helpers.GetJSONString(token0))
+		// fmt.Println(helpers.GetJSONString(token1))
 		return errors.New("invalid defi price")
 	}
 
 	exchangablePool, err := NewV3ExchangablePool(pool, token0, token1)
 	if err != nil {
-		fmt.Println("Unable to init exchangablePool")
 		return errors.New("invalid defi price")
 	}
 
@@ -166,36 +170,28 @@ func UpdateRateFor10USD(pool *models.UniswapV3Pool, token0 *models.Token, token1
 
 	amount1Out, err := exchangablePool.ImitateSwap(amount0Init, true)
 	if err != nil {
-		fmt.Println("Not passed zfo: ", helpers.GetJSONString(pool))
 		return err
 	}
 	reverted0, err := exchangablePool.ImitateSwap(amount1Out, false)
 	if err != nil {
-		fmt.Println("Not passed reverted zfo: ", helpers.GetJSONString(pool))
 		return err
 	}
 
 	amount0Out, err := exchangablePool.ImitateSwap(amount1Init, false)
 	if err != nil {
-		fmt.Println("Not passed !zfo: ", helpers.GetJSONString(pool))
 		return err
 	}
 	reverted1, err := exchangablePool.ImitateSwap(amount0Out, true)
 	if err != nil {
-		fmt.Println("Not passed reverted !zfo: ", helpers.GetJSONString(pool))
 		return err
 	}
 
 	percentZfo := new(big.Float).Quo(new(big.Float).SetInt(reverted0), new(big.Float).SetInt(amount0Init))
 	if percentZfo.Cmp(big.NewFloat(0.97)) < 0 {
-		fmt.Println("Not passed percent zfo: ", helpers.GetJSONString(pool))
-		fmt.Println(percentZfo.Text('f', 2))
 		return err
 	}
 	percentNonZfo := new(big.Float).Quo(new(big.Float).SetInt(reverted1), new(big.Float).SetInt(amount1Init))
 	if percentNonZfo.Cmp(big.NewFloat(0.97)) < 0 {
-		fmt.Println("Not passed percent !zfo: ", helpers.GetJSONString(pool))
-		fmt.Println(percentNonZfo.Text('f', 2))
 		return err
 	}
 
@@ -257,9 +253,9 @@ func checkPairForDefinedTokens(
 	tokensMap map[string]tokenWithUSDPrice,
 	checkedPools map[string]any,
 	pool *models.UniswapV3Pool,
-) {
+) error {
 	if _, ok := checkedPools[pool.Address]; ok {
-		return
+		return nil
 	}
 
 	dt := tokenWithUSDPrice{}
@@ -282,7 +278,7 @@ func checkPairForDefinedTokens(
 		dt = dt1
 		atAddress = pool.Token0
 	} else {
-		return
+		return nil
 	}
 
 	isDTZero := pool.Token0 == dt.Token.Address
@@ -292,7 +288,7 @@ func checkPairForDefinedTokens(
 	atData, ok := tokenDataMap[atAddress]
 	if !ok {
 		fmt.Println("Another token not found ============================================", atAddress, helpers.GetJSONString(pool))
-		return
+		return nil
 	}
 
 	at := models.Token{
@@ -322,17 +318,17 @@ func checkPairForDefinedTokens(
 
 	atOutFor10USD, err := exchangable.ImitateSwap(dtAmountFor10USD, isDTZero)
 	if err != nil {
-		return
+		return err
 	}
 
 	resultAmountOfDt, err := exchangable.ImitateSwap(atOutFor10USD, !isDTZero)
 	if err != nil {
-		return
+		return err
 	}
 
 	percent := new(big.Float).Quo(new(big.Float).SetInt(resultAmountOfDt), new(big.Float).SetInt(dtAmountFor10USD))
-	if percent.Cmp(big.NewFloat(0.97)) < 0 {
-		return
+	if percent.Cmp(big.NewFloat(0.98)) < 0 {
+		return nil
 	}
 
 	// fmt.Println(dt.Token.Address, dt.Token.Decimals, dtAmountFor10USD.String(), "->", resultAmountOfDt.String())
@@ -340,9 +336,15 @@ func checkPairForDefinedTokens(
 	tokenPrice, err := getPrice(pool, at.Address, dt.Token.Decimals, at.Decimals)
 	if err != nil {
 		fmt.Println("unable to get price: ", err)
-		return
+		return nil
 	}
 	atUSDPrice := new(big.Float).Mul(tokenPrice, dtUSDPrice)
+
+	if at.Symbol == "SKY" || at.Symbol == "MKR" || at.Symbol == "RLUSD" {
+		fmt.Printf("%s(%s$) -> %s(%s$)\n", dt.Token.Symbol, dt.Token.DefiUSDPrice.String(), at.Symbol, atUSDPrice.String())
+		fmt.Printf("%s$ -> %s$\n", dtAmountFor10USD.String(), resultAmountOfDt.String())
+		fmt.Print("\n")
+	}
 
 	if atUSDPrice.Cmp(big.NewFloat(0)) == 0 {
 		fmt.Println("zero at usd price: ", atUSDPrice.String())
@@ -387,4 +389,6 @@ func checkPairForDefinedTokens(
 		newToken.Token.DefiUSDPrice = atUSDPrice
 		tokensMap[at.Address] = newToken
 	}
+
+	return nil
 }

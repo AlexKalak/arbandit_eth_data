@@ -2,19 +2,17 @@ package arbitrageservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 
 	"github.com/alexkalak/go_market_analyze/common/core/exchangables"
-	"github.com/alexkalak/go_market_analyze/common/core/exchangables/v2pairexchangable"
 	"github.com/alexkalak/go_market_analyze/common/core/exchangables/v3poolexchangable"
 	"github.com/alexkalak/go_market_analyze/common/core/exchangegraph"
-	"github.com/alexkalak/go_market_analyze/common/helpers/envhelper"
 	"github.com/alexkalak/go_market_analyze/common/models"
 	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v2pairsrepo"
+	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v3poolsrepo"
 	"github.com/alexkalak/go_market_analyze/common/repo/tokenrepo"
-	"github.com/alexkalak/go_market_analyze/services/arbitrageservice/src/arberrors"
-	"github.com/alexkalak/go_market_analyze/src/services/poolcacheservice"
 )
 
 type ArbitrageService interface {
@@ -22,25 +20,36 @@ type ArbitrageService interface {
 }
 
 type arbitrageService struct {
-	env                  *envhelper.Environment
 	currentCheckingBlock uint64
 	chainID              uint
 	exchangeGraph        exchangegraph.ExchangesGraph
 }
 
 type ArbitrageServiceDependencies struct {
-	Env                *envhelper.Environment
-	TokenRepo          tokenrepo.TokenRepo
-	V3PoolCacheService poolcacheservice.V3PoolCacheService
-	V2PairRepo         v2pairsrepo.V2PairRepo
+	TokenRepo       tokenrepo.TokenRepo
+	V3PoolCacheRepo v3poolsrepo.V3PoolCacheRepo
+	V2PairRepo      v2pairsrepo.V2PairRepo
+}
+
+func (d *ArbitrageServiceDependencies) validate() error {
+	if d.TokenRepo == nil {
+		return errors.New("arbitrage service dependencies token repo cannot be nil")
+
+	}
+	if d.V3PoolCacheRepo == nil {
+		return errors.New("arbitrage service dependencies token repo cannot be nil")
+
+	}
+	// if d.V2PairRepo== nil {
+	// 	return errors.New("arbitrage service dependencies token repo cannot be nil")
+	//
+	// }
+	return nil
 }
 
 func New(chainID uint, dependencies ArbitrageServiceDependencies) (ArbitrageService, error) {
-	if dependencies.Env == nil ||
-		dependencies.TokenRepo == nil ||
-		dependencies.V2PairRepo == nil ||
-		dependencies.V3PoolCacheService == nil {
-		return nil, arberrors.ErrInvalidArbitrageServiceDependencies
+	if err := dependencies.validate(); err != nil {
+		return nil, err
 	}
 
 	tokens, err := dependencies.TokenRepo.GetTokens()
@@ -52,38 +61,40 @@ func New(chainID uint, dependencies ArbitrageServiceDependencies) (ArbitrageServ
 		tokenIDs[token.GetIdentificator()] = &token
 	}
 
-	pairs, err := dependencies.V2PairRepo.GetNonDustyPairsByChainID(chainID)
+	// pairs, err := dependencies.V2PairRepo.GetNonDustyPairsByChainID(chainID)
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	pools, err := dependencies.V3PoolCacheRepo.GetNonDustyPools(chainID)
 	if err != nil {
 		panic(err)
 	}
-	pools, err := dependencies.V3PoolCacheService.GetNonDustyPools(chainID)
-	if err != nil {
-		panic(err)
-	}
 
-	exchangablesArray := make([]exchangables.Exchangable, 0, len(pairs)+len(pools))
+	// exchangablesArray := make([]exchangables.Exchangable, 0, len(pairs)+len(pools))
+	exchangablesArray := make([]exchangables.Exchangable, 0, len(pools))
 
-	for _, pair := range pairs {
-		token0, ok := tokenIDs[models.TokenIdentificator{Address: pair.Token0, ChainID: chainID}]
-		if !ok {
-			continue
-		}
-		token1, ok := tokenIDs[models.TokenIdentificator{Address: pair.Token1, ChainID: chainID}]
-		if !ok {
-			continue
-		}
-
-		v2Exchangable, err := v2pairexchangable.New(
-			&pair,
-			token0,
-			token1,
-		)
-		if err != nil {
-			continue
-		}
-
-		exchangablesArray = append(exchangablesArray, &v2Exchangable)
-	}
+	// for _, pair := range pairs {
+	// 	token0, ok := tokenIDs[models.TokenIdentificator{Address: pair.Token0, ChainID: chainID}]
+	// 	if !ok {
+	// 		continue
+	// 	}
+	// 	token1, ok := tokenIDs[models.TokenIdentificator{Address: pair.Token1, ChainID: chainID}]
+	// 	if !ok {
+	// 		continue
+	// 	}
+	//
+	// 	v2Exchangable, err := v2pairexchangable.New(
+	// 		&pair,
+	// 		token0,
+	// 		token1,
+	// 	)
+	// 	if err != nil {
+	// 		continue
+	// 	}
+	//
+	// 	exchangablesArray = append(exchangablesArray, &v2Exchangable)
+	// }
 
 	for _, pool := range pools {
 		token0, ok := tokenIDs[models.TokenIdentificator{Address: pool.Token0, ChainID: chainID}]
@@ -119,13 +130,12 @@ func New(chainID uint, dependencies ArbitrageServiceDependencies) (ArbitrageServ
 	}
 
 	return &arbitrageService{
-		env:           dependencies.Env,
 		exchangeGraph: exchangeGraph,
 		chainID:       chainID,
 	}, nil
 }
 
 func (s *arbitrageService) Start(ctx context.Context) error {
-	s.exchangeGraph.FindAllArbs(4, big.NewInt(int64(s.chainID)))
+	s.exchangeGraph.FindAllArbs(3, big.NewInt(int64(s.chainID)))
 	return nil
 }

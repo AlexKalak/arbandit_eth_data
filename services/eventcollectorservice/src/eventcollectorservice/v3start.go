@@ -16,7 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
-func (s *rpcEventsCollector) StartFromBlock(ctx context.Context, addresses []common.Address, blockNumber *big.Int) error {
+func (s *rpcEventsCollector) StartFromBlockV3(ctx context.Context, addresses []common.Address, blockNumber *big.Int) error {
 	fmt.Println("Configuring RpcSyncService...")
 	err := s.configure(ctx, addresses)
 	if err != nil {
@@ -270,6 +270,7 @@ func (s *rpcEventsCollector) handlePancakeswapV3Log(lg types.Log) (poolEvent, er
 			Data:        ev,
 			BlockNumber: lg.BlockNumber,
 			Address:     strings.ToLower(lg.Address.Hex()),
+			TxHash:      lg.TxHash.Hex(),
 		}, nil
 
 	case abiForEvent.MintV3Sig:
@@ -284,6 +285,7 @@ func (s *rpcEventsCollector) handlePancakeswapV3Log(lg types.Log) (poolEvent, er
 			Data:        ev,
 			BlockNumber: lg.BlockNumber,
 			Address:     strings.ToLower(lg.Address.Hex()),
+			TxHash:      lg.TxHash.Hex(),
 		}, nil
 	case abiForEvent.BurnV3Sig:
 		// Uses standard uniswap mint abi
@@ -297,6 +299,7 @@ func (s *rpcEventsCollector) handlePancakeswapV3Log(lg types.Log) (poolEvent, er
 			Data:        ev,
 			BlockNumber: lg.BlockNumber,
 			Address:     strings.ToLower(lg.Address.Hex()),
+			TxHash:      lg.TxHash.Hex(),
 		}, nil
 
 	default:
@@ -325,6 +328,7 @@ func (s *rpcEventsCollector) handleSushiswapV3Log(lg types.Log) (poolEvent, erro
 			Data:        ev,
 			BlockNumber: lg.BlockNumber,
 			Address:     strings.ToLower(lg.Address.Hex()),
+			TxHash:      lg.TxHash.Hex(),
 		}, nil
 
 	case abiForEvent.MintV3Sig:
@@ -339,6 +343,7 @@ func (s *rpcEventsCollector) handleSushiswapV3Log(lg types.Log) (poolEvent, erro
 			Data:        ev,
 			BlockNumber: lg.BlockNumber,
 			Address:     strings.ToLower(lg.Address.Hex()),
+			TxHash:      lg.TxHash.Hex(),
 		}, nil
 
 	case abiForEvent.BurnV3Sig:
@@ -353,6 +358,7 @@ func (s *rpcEventsCollector) handleSushiswapV3Log(lg types.Log) (poolEvent, erro
 			Data:        ev,
 			BlockNumber: lg.BlockNumber,
 			Address:     strings.ToLower(lg.Address.Hex()),
+			TxHash:      lg.TxHash.Hex(),
 		}, nil
 
 	default:
@@ -380,6 +386,7 @@ func (s *rpcEventsCollector) handleUniswapV3Log(lg types.Log) (poolEvent, error)
 			Data:        ev,
 			BlockNumber: lg.BlockNumber,
 			Address:     strings.ToLower(lg.Address.Hex()),
+			TxHash:      lg.TxHash.Hex(),
 		}, nil
 	case abiForEvent.MintV3Sig:
 		ev, err := parseUniswapV3MintEvent(abiForEvent, lg)
@@ -392,6 +399,7 @@ func (s *rpcEventsCollector) handleUniswapV3Log(lg types.Log) (poolEvent, error)
 			Data:        ev,
 			BlockNumber: lg.BlockNumber,
 			Address:     strings.ToLower(lg.Address.Hex()),
+			TxHash:      lg.TxHash.Hex(),
 		}, nil
 	case abiForEvent.BurnV3Sig:
 		ev, err := parseUniswapV3BurnEvent(abiForEvent, lg)
@@ -404,6 +412,7 @@ func (s *rpcEventsCollector) handleUniswapV3Log(lg types.Log) (poolEvent, error)
 			Data:        ev,
 			BlockNumber: lg.BlockNumber,
 			Address:     strings.ToLower(lg.Address.Hex()),
+			TxHash:      lg.TxHash.Hex(),
 		}, nil
 
 	default:

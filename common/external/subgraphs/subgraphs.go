@@ -158,7 +158,7 @@ func (s *subgraphClient) GetV3Pools(ctx context.Context, chainID uint) ([]models
 
 	for exchangeName, url := range urls {
 		currentChunk := 0
-		fmt.Println("exchangeNmae: ", exchangeName)
+		fmt.Println("exchangeName: ", exchangeName)
 		fmt.Println(url)
 		for {
 			poolsToPush := make([]PoolResponse, parallelQueries*poolsChunkSize)

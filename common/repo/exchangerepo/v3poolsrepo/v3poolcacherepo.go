@@ -73,7 +73,7 @@ func (r *v3poolCacheRepo) GetPools(chainID uint) ([]models.UniswapV3Pool, error)
 		pool := models.UniswapV3Pool{}
 		err = json.Unmarshal([]byte(poolStr), &pool)
 		if err != nil {
-			return nil, err
+			continue
 		}
 
 		pools = append(pools, pool)
@@ -102,7 +102,7 @@ func (r *v3poolCacheRepo) GetNonDustyPools(chainID uint) ([]models.UniswapV3Pool
 		pool := models.UniswapV3Pool{}
 		err = json.Unmarshal([]byte(poolStr), &pool)
 		if err != nil {
-			return nil, err
+			continue
 		}
 
 		if pool.IsDusty {
@@ -191,7 +191,10 @@ func (r *v3poolCacheRepo) SetBlockNumber(chainID uint, blockNumber uint64) error
 		return err
 	}
 
-	resp := rdb.HSet(r.ctx, fmt.Sprint(BLOCK_NUMBER_KEY, getPoolsHashByChainID(chainID)), BLOCK_NUMBER_KEY, blockNumber)
+	fmt.Println(getPoolsHashByChainID(chainID))
+	fmt.Println(BLOCK_NUMBER_KEY)
+	fmt.Println(blockNumber)
+	resp := rdb.HSet(r.ctx, getPoolsHashByChainID(chainID), BLOCK_NUMBER_KEY, blockNumber)
 	if resp.Err() != nil {
 		return resp.Err()
 	}

@@ -18,7 +18,7 @@ func main() {
 	}
 
 	var chainID uint = 1
-	blockNumber := big.NewInt(23692019)
+	blockNumber := big.NewInt(23704182)
 
 	pgConf := pgdatabase.PgDatabaseConfig{
 		Host:     env.POSTGRES_HOST,
@@ -67,5 +67,5 @@ func main() {
 		panic(err)
 	}
 
-	eventCollectorService.StartFromBlock(context.Background(), poolAddresses, blockNumber)
+	eventCollectorService.StartFromBlockV3(context.Background(), poolAddresses, blockNumber)
 }

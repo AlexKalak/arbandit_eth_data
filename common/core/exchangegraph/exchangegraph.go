@@ -183,7 +183,7 @@ func (g *exchangesGraph) FindAllArbs(maxDepth int, initAmount *big.Int) {
 			found = true
 			break
 		}
-		//
+
 		if found {
 			continue
 		}
@@ -205,7 +205,7 @@ func (g *exchangesGraph) FindAllArbs(maxDepth int, initAmount *big.Int) {
 				edge := arb.usedEdges[i-1]
 				v3Exchangable, ok := edge.Exchangable.(*v3poolexchangable.ExchangableUniswapV3Pool)
 				if ok {
-					v3Exchangable.ImitateSwapWithLog(arb.amounts[i-1], edge.Zfo)
+					v3Exchangable.ImitateSwap(arb.amounts[i-1], edge.Zfo)
 				}
 				fmt.Printf(" -> %s %s - %s \n", arb.amounts[i], token.Symbol, edge.Exchangable.Address())
 			}
@@ -259,13 +259,12 @@ func (g *exchangesGraph) FindArbs(startTokenIndex int, maxDepth int, initAmount 
 				continue
 			}
 
-			newAmount, err := e.Exchangable.ImitateSwap(path.amount, e.Zfo)
-			if err != nil {
+			newAmountF := new(big.Float).Mul(new(big.Float).SetInt(path.amount), e.Exchangable.GetRate(e.Zfo))
+			if newAmountF.Cmp(big.NewFloat(0)) == 0 {
 				continue
 			}
-			if newAmount.Cmp(big.NewInt(0)) == 0 {
-				continue
-			}
+
+			newAmount, _ := newAmountF.Int(nil)
 
 			updatedHops := append([]int(nil), path.hops...)
 			updatedHops = append(updatedHops, next)
