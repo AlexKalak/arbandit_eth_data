@@ -10,14 +10,14 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const TRANSACTION_STREAM = "v3transactions"
+const SWAP_STREAM = "v3swaps"
 
 func getV3TransactionStreamByChainID(chainID uint) string {
-	return fmt.Sprintf("%d_%s", chainID, TRANSACTION_STREAM)
+	return fmt.Sprintf("%d_%s", chainID, SWAP_STREAM)
 }
 
 type V3TransactionCacheRepo interface {
-	StreamTransaction(transaction models.V3Transaction) error
+	StreamSwap(transaction models.V3Swap) error
 }
 
 type V3TransacationCacheRepoConfig struct {
@@ -43,7 +43,7 @@ func NewCacheRepo(ctx context.Context, config V3TransacationCacheRepoConfig) (V3
 	}, nil
 }
 
-func (r *v3transactionCacheRepo) StreamTransaction(transaction models.V3Transaction) error {
+func (r *v3transactionCacheRepo) StreamSwap(transaction models.V3Swap) error {
 	rdb, err := r.redisDB.GetDB()
 	if err != nil {
 		return nil
@@ -58,7 +58,7 @@ func (r *v3transactionCacheRepo) StreamTransaction(transaction models.V3Transact
 	res := rdb.XAdd(r.ctx, &redis.XAddArgs{
 		Stream: getV3TransactionStreamByChainID(transaction.ChainID),
 		Values: map[string]any{
-			"transaction": formattedTransaction,
+			"swap": formattedTransaction,
 		},
 	})
 	if res.Err() != nil {

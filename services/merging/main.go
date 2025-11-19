@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
+	"math/big"
+
 	"github.com/alexkalak/go_market_analyze/common/external/rpcclient"
 	"github.com/alexkalak/go_market_analyze/common/external/subgraphs"
 	"github.com/alexkalak/go_market_analyze/common/helpers/envhelper"
+	"github.com/alexkalak/go_market_analyze/common/models"
 	"github.com/alexkalak/go_market_analyze/common/periphery/pgdatabase"
 	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v3poolsrepo"
 	"github.com/alexkalak/go_market_analyze/common/repo/tokenrepo"
@@ -70,10 +74,59 @@ func main() {
 		panic(err)
 	}
 
-	var chainID uint = 1
-	// blockNumber := 23746555
+	// mergePools(merger)
+	// mergePoolsTicks(merger)
+	// mergePoolsData(merger)
 
-	err = merger.ValidateV3PoolsAndComputeAverageUSDPrice(chainID)
+	validatePools(merger)
+
+	// imitatePoolSwap(merger)
+
+}
+
+func mergePools(merger merger.Merger) {
+	var chainID uint = 1
+
+	err := merger.MergePools(chainID)
+	if err != nil {
+		panic(err)
+	}
+}
+func mergePoolsTicks(merger merger.Merger) {
+	var chainID uint = 1
+
+	err := merger.MergePoolsTicks(context.Background(), chainID)
+	if err != nil {
+		panic(err)
+	}
+}
+func mergePoolsData(merger merger.Merger) {
+	var chainID uint = 1
+	blockNumber := big.NewInt(int64(23821196))
+
+	err := merger.MergePoolsData(context.Background(), chainID, blockNumber)
+	if err != nil {
+		panic(err)
+	}
+}
+func validatePools(merger merger.Merger) {
+	var chainID uint = 1
+
+	err := merger.ValidateV3PoolsAndComputeAverageUSDPrice(chainID)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func imitatePoolSwap(merger merger.Merger) {
+	poolAddress := "0xc07044d4b947e7c5701f1922db048c6b47799b84"
+	var chainID uint = 1
+
+	err := merger.ImitateSwapForPool(models.V3PoolIdentificator{
+		Address: poolAddress,
+		ChainID: chainID,
+	}, big.NewInt(10))
+
 	if err != nil {
 		panic(err)
 	}

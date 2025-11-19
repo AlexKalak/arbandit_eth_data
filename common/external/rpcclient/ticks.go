@@ -2,7 +2,6 @@ package rpcclient
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -183,11 +182,12 @@ func (c *rpcClient) handleGetPoolBitmapsReturnBytes(pools []models.UniswapV3Pool
 			pool.TickLower = int(lowerTick)
 			pool.TickUpper = int(upperTick)
 
-			nearTicksJSON, err := json.Marshal(initializedTicks)
-			if err != nil {
-				fmt.Println("Unable to marshal nearTicksJSON")
-			}
-			pool.NearTicksJSON = string(nearTicksJSON)
+			//Fix: This is not working
+			// nearTicksJSON, err := json.Marshal(initializedTicks)
+			// if err != nil {
+			// 	fmt.Println("Unable to marshal nearTicksJSON")
+			// }
+			// pool.= string(nearTicksJSON)
 		}
 
 		updatedPools = append(updatedPools, pool)

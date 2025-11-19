@@ -29,10 +29,28 @@ func (s *rpcEventsCollector) StartFromBlockV3(ctx context.Context, addresses []c
 	if !ok {
 		return errors.New("abi not found")
 	}
+	pancakeswapABI, ok := s.abis[_PANCAKESWAP_V3_ABI_NAME]
+	if !ok {
+		return errors.New("abi not found")
+	}
+	sushiswapABI, ok := s.abis[_SUSHISWAP_V3_ABI_NAME]
+	if !ok {
+		return errors.New("abi not found")
+	}
 
 	query := ethereum.FilterQuery{
-		FromBlock: nil,
-		Topics:    [][]common.Hash{{uniswapABI.SwapV3Sig}},
+		Addresses: addresses,
+		Topics: [][]common.Hash{{
+			uniswapABI.SwapV3Sig,
+			uniswapABI.MintV3Sig,
+			uniswapABI.BurnV3Sig,
+			pancakeswapABI.SwapV3Sig,
+			pancakeswapABI.MintV3Sig,
+			pancakeswapABI.BurnV3Sig,
+			sushiswapABI.SwapV3Sig,
+			sushiswapABI.MintV3Sig,
+			sushiswapABI.BurnV3Sig,
+		}},
 	}
 
 	headCh := make(chan *types.Header, 1024)
@@ -51,6 +69,7 @@ func (s *rpcEventsCollector) StartFromBlockV3(ctx context.Context, addresses []c
 	}
 	defer sub.Unsubscribe()
 
+	fmt.Println("Query header by number")
 	currentHead, err := s.wsLogsClient.HeaderByNumber(ctx, nil)
 	if err != nil {
 		fmt.Println("Error getting last block header: ", err)
@@ -58,7 +77,7 @@ func (s *rpcEventsCollector) StartFromBlockV3(ctx context.Context, addresses []c
 		return s.StartFromBlockV3(ctx, addresses)
 	}
 
-	if currentHead.Number.Uint64()-s.lastCheckedBlock > 3000 {
+	if currentHead.Number.Uint64()-s.lastCheckedBlock > 400 {
 		err := s.mergeFromBlock(ctx, s.config.ChainID, currentHead.Number)
 		if err != nil {
 			return err
@@ -83,13 +102,22 @@ func (s *rpcEventsCollector) StartFromBlockV3(ctx context.Context, addresses []c
 }
 
 func (s *rpcEventsCollector) mergeFromBlock(ctx context.Context, chainID uint, blockNumber *big.Int) error {
+	var err error
 	fmt.Println("Merging pools...")
-	err := s.merger.MergePools(chainID)
+	err = s.merger.MergePools(chainID)
 	if err != nil {
 		fmt.Println("Merging pools error: ", err)
 		return err
 	}
 	fmt.Println("Merging pools done.")
+
+	fmt.Println("Merging pools ticks...")
+	err = s.merger.MergePoolsTicks(ctx, chainID)
+	if err != nil {
+		fmt.Println("Merging pools ticks error: ", err)
+		return err
+	}
+	fmt.Println("Merging pools ticks done.")
 
 	fmt.Println("Merging pools data...")
 	err = s.merger.MergePoolsData(ctx, chainID, blockNumber)
@@ -98,14 +126,6 @@ func (s *rpcEventsCollector) mergeFromBlock(ctx context.Context, chainID uint, b
 		return err
 	}
 	fmt.Println("Merging pools data done.")
-
-	fmt.Println("Merging pools ticks...")
-	err = s.merger.MergePoolsTicks(ctx, chainID, blockNumber)
-	if err != nil {
-		fmt.Println("Merging pools ticks error: ", err)
-		return err
-	}
-	fmt.Println("Merging pools ticks done.")
 
 	fmt.Println("Validating pools ...")
 	err = s.merger.ValidateV3PoolsAndComputeAverageUSDPrice(chainID)
@@ -119,6 +139,7 @@ func (s *rpcEventsCollector) mergeFromBlock(ctx context.Context, chainID uint, b
 }
 
 func (s *rpcEventsCollector) ListenNewLogs(ctx context.Context, sub ethereum.Subscription, headSub ethereum.Subscription, fromBlock uint64, logsCh <-chan types.Log, headsCh <-chan *types.Header) error {
+	crashTicker := time.NewTicker(s.averageBlockTime * 2)
 	logCount := 0
 	for {
 		select {
@@ -191,9 +212,16 @@ func (s *rpcEventsCollector) ListenNewLogs(ctx context.Context, sub ethereum.Sub
 				fmt.Println("successful logs: ", logCount)
 
 			}
-		}
-	}
+		case <-crashTicker.C:
+			fmt.Println("In crashTicker: ", time.Since(s.lastLogTime) > s.averageBlockTime*2)
+			if time.Since(s.lastLogTime) > s.averageBlockTime*2 {
+				fmt.Println("Not getting events properly, crashing listener.")
+				return errors.New("Not getting events properly.")
+			}
 
+		}
+
+	}
 }
 
 func (s *rpcEventsCollector) processNewLog(lg types.Log, blockTimestamp uint64) {
@@ -211,7 +239,12 @@ func (s *rpcEventsCollector) processNewLog(lg types.Log, blockTimestamp uint64) 
 	}
 	poolEvent.TxTimestamp = blockTimestamp
 
+	if poolEvent.Address == "" {
+		return
+	}
+
 	fmt.Println("a", lg.Address, poolEvent.Type, poolEvent.TxHash, poolEvent.TxTimestamp, lg.BlockNumber)
+
 	err = s.kafkaClient.sendUpdateV3PricesEvent(poolEvent)
 	if err != nil {
 		fmt.Println("KAFKA ERR: ", err)
@@ -337,14 +370,14 @@ func (s *rpcEventsCollector) requireSwapEventsFromBlock(ctx context.Context, blo
 	if !ok {
 		return nil, errors.New("abi not found")
 	}
-	// pancakeswapABI, ok := s.abis[_PANCAKESWAP_V3_ABI_NAME]
-	// if !ok {
-	// 	return nil, errors.New("abi not found")
-	// }
-	// sushiswapABI, ok := s.abis[_SUSHISWAP_V3_ABI_NAME]
-	// if !ok {
-	// 	return nil, errors.New("abi not found")
-	// }
+	pancakeswapABI, ok := s.abis[_PANCAKESWAP_V3_ABI_NAME]
+	if !ok {
+		return nil, errors.New("abi not found")
+	}
+	sushiswapABI, ok := s.abis[_SUSHISWAP_V3_ABI_NAME]
+	if !ok {
+		return nil, errors.New("abi not found")
+	}
 
 	validLogs := make([]types.Log, 0)
 	blocksByChunk := new(big.Int).Sub(currentHeadBlockNumber, blockNumber)
@@ -359,20 +392,34 @@ func (s *rpcEventsCollector) requireSwapEventsFromBlock(ctx context.Context, blo
 					blocksByChunk,
 					big.NewInt(int64(i+1)),
 				)),
-			Topics: [][]common.Hash{{uniswapABI.SwapV3Sig}},
+			Topics: [][]common.Hash{{
+				uniswapABI.SwapV3Sig,
+				uniswapABI.MintV3Sig,
+				uniswapABI.BurnV3Sig,
+				pancakeswapABI.SwapV3Sig,
+				pancakeswapABI.MintV3Sig,
+				pancakeswapABI.BurnV3Sig,
+				sushiswapABI.SwapV3Sig,
+				sushiswapABI.MintV3Sig,
+				sushiswapABI.BurnV3Sig,
+			}},
 		}
 
-		logs, err := s.wsLogsClient.FilterLogs(ctx, query)
+		ctxWithTime, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		logs, err := s.wsLogsClient.FilterLogs(ctxWithTime, query)
 
 		fmt.Println("Len logs: ", len(logs))
-		if err != nil {
-			if strings.Contains(err.Error(), "query exceeds max results") || strings.Contains(err.Error(), "range is over limit") {
-				time.Sleep(1)
-				return s.requireSwapEventsFromBlock(ctx, blockNumber, currentHeadBlockNumber, chunksCount+1)
-			}
 
+		if err != nil {
 			fmt.Println("Error quering logs: ", err)
-			return nil, err
+			// if strings.Contains(err.Error(), "query exceeds max results") || strings.Contains(err.Error(), "range is over limit") {
+			time.Sleep(1)
+			return s.requireSwapEventsFromBlock(ctx, blockNumber, currentHeadBlockNumber, chunksCount+1)
+			// }
+
+			// return nil, err
 		}
 
 		for _, log := range logs {
@@ -405,21 +452,24 @@ func (s *rpcEventsCollector) handleLog(lg types.Log) (poolEvent, error) {
 	}
 
 	switch lg.Topics[0] {
-	case pancakeSwapAbi.SwapV3Sig,
+	case
+		pancakeSwapAbi.SwapV3Sig,
 		pancakeSwapAbi.MintV3Sig,
 		pancakeSwapAbi.BurnV3Sig:
 		return s.handlePancakeswapV3Log(lg)
-	case uniswapAbi.SwapV3Sig,
+	case
 		uniswapAbi.SwapV3Sig,
-		uniswapAbi.SwapV3Sig:
+		uniswapAbi.MintV3Sig,
+		uniswapAbi.BurnV3Sig:
 		return s.handleUniswapV3Log(lg)
-	case sushiswapAbi.SwapV3Sig,
+	case
+		sushiswapAbi.SwapV3Sig,
 		sushiswapAbi.MintV3Sig,
 		sushiswapAbi.BurnV3Sig:
 		return s.handleSushiswapV3Log(lg)
 	}
 
-	return poolEvent{}, eventcollectorerrors.ErrLogTypeNotFound
+	return poolEvent{}, nil
 }
 
 func (s *rpcEventsCollector) handlePancakeswapV3Log(lg types.Log) (poolEvent, error) {
@@ -725,6 +775,7 @@ func parseUniswapV3MintEvent(abiForEvent v3ExchangeABI, lg types.Log) (uniswapV3
 	ev.Amount = Amount
 	ev.Amount0 = Amount0
 	ev.Amount1 = Amount1
+
 	return ev, nil
 }
 

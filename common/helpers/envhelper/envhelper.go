@@ -3,6 +3,7 @@ package envhelper
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -21,10 +22,11 @@ type Environment struct {
 	ETH_MAINNET_RPC_HTTP string
 	BSC_MAINNET_RPC      string
 
-	KAFKA_SERVER string
+	KAFKA_SERVER                string
 	KAFKA_UPDATE_V3_POOLS_TOPIC string
 
-	REDIS_SERVER string
+	REDIS_SERVER        string
+	ARBITRAGE_GRPC_PORT uint
 }
 
 var env *Environment
@@ -59,10 +61,12 @@ const _ETH_MAINNET_RPC_HTTP = "ETH_MAINNET_RPC_HTTP"
 
 const _BSC_MAINNET_RPC = "BSC_MAINNET_RPC"
 
-const _KAFKA_SERVER= "KAFKA_SERVER"
-const _KAFKA_UPDATE_V3_POOLS_TOPIC= "KAFKA_UPDATE_V3_POOLS_TOPIC"
+const _KAFKA_SERVER = "KAFKA_SERVER"
+const _KAFKA_UPDATE_V3_POOLS_TOPIC = "KAFKA_UPDATE_V3_POOLS_TOPIC"
 
 const _REDIS_SERVER = "REDIS_SERVER"
+
+const _ARBITRAGE_GRPC_PORT = "ARBITRAGE_GRPC_PORT"
 
 func load() error {
 	godotenv.Load()
@@ -125,7 +129,7 @@ func load() error {
 	}
 
 	env.KAFKA_SERVER = os.Getenv(_KAFKA_SERVER)
-	if env.KAFKA_SERVER== "" {
+	if env.KAFKA_SERVER == "" {
 		return buildLoadingEnvError(_KAFKA_SERVER)
 	}
 	env.KAFKA_UPDATE_V3_POOLS_TOPIC = os.Getenv(_KAFKA_UPDATE_V3_POOLS_TOPIC)
@@ -134,8 +138,19 @@ func load() error {
 	}
 
 	env.REDIS_SERVER = os.Getenv(_REDIS_SERVER)
-	if env.REDIS_SERVER== "" {
+	if env.REDIS_SERVER == "" {
 		return buildLoadingEnvError(_REDIS_SERVER)
+	}
+
+	arbGRPCPortStr := os.Getenv(_ARBITRAGE_GRPC_PORT)
+	arbGRPCPort, err := strconv.Atoi(arbGRPCPortStr)
+	if err != nil {
+		return buildLoadingEnvError(_ARBITRAGE_GRPC_PORT)
+	}
+	env.ARBITRAGE_GRPC_PORT = uint(arbGRPCPort)
+
+	if env.REDIS_SERVER == "" {
+		return buildLoadingEnvError(_ARBITRAGE_GRPC_PORT)
 	}
 	return nil
 }

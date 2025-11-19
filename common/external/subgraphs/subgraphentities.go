@@ -7,9 +7,16 @@ type TokenResponse struct {
 	Symbol   string `json:"symbol"`
 }
 
+type PoolTickResponse struct {
+	TickIdx      string `json:"tickIdx"`
+	LiquidityNet string `json:"liquidityNet"`
+	PoolAddress  string `json:"poolAddress"`
+}
+
 type PoolResponseToken struct {
 	ID string `json:"id"`
 }
+
 type PoolResponse struct {
 	ID      string            `json:"id"`
 	FeeTier string            `json:"feeTier"`

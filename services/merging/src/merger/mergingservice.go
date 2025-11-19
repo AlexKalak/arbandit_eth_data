@@ -8,6 +8,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/alexkalak/go_market_analyze/common/external/rpcclient"
 	"github.com/alexkalak/go_market_analyze/common/external/subgraphs"
+	"github.com/alexkalak/go_market_analyze/common/models"
 	"github.com/alexkalak/go_market_analyze/common/periphery/pgdatabase"
 	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v3poolsrepo"
 	"github.com/alexkalak/go_market_analyze/common/repo/tokenrepo"
@@ -70,8 +71,10 @@ type Merger interface {
 	MergeTokens(chainID uint) error
 	MergePools(chainID uint) error
 	MergePoolsData(ctx context.Context, chainID uint, blockNumber *big.Int) error
-	MergePoolsTicks(ctx context.Context, chainID uint, blockNumber *big.Int) error
+	MergePoolsTicks(ctx context.Context, chainID uint) error
 	ValidateV3PoolsAndComputeAverageUSDPrice(chainID uint) error
+	SortPoolTicks() error
+	ImitateSwapForPool(identificator models.V3PoolIdentificator, amountInUSD *big.Int) error
 }
 
 type merger struct {

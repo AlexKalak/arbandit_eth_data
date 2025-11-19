@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"flag"
 
 	"github.com/alexkalak/go_market_analyze/common/helpers/envhelper"
 	"github.com/alexkalak/go_market_analyze/common/periphery/pgdatabase"
 	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v3poolsrepo"
 	"github.com/alexkalak/go_market_analyze/common/repo/tokenrepo"
-	arbitrageservice "github.com/alexkalak/go_market_analyze/services/arbitrageservice/src"
+	"github.com/alexkalak/go_market_analyze/common/repo/transactionrepo/v3transactionrepo"
+	"github.com/alexkalak/go_market_analyze/services/arbitrageservice/src/arbitrageservice"
+	"github.com/alexkalak/go_market_analyze/services/arbitrageservice/src/controllers/arbitragegrpc"
 )
 
 func main() {
@@ -37,16 +40,32 @@ func main() {
 		panic(err)
 	}
 
-	V3PoolCacheRepo, err := v3poolsrepo.NewCacheRepo(context.Background(), v3poolsrepo.V3PoolCacheRepoConfig{
-		RedisServer: env.REDIS_SERVER,
+	v3PoolDBRepo, err := v3poolsrepo.NewDBRepo(v3poolsrepo.V3PoolDBRepoDependencies{
+		Database: pgDB,
 	})
-
 	if err != nil {
 		panic(err)
 	}
+
+	v3PoolCacheRepo, err := v3poolsrepo.NewCacheRepo(context.Background(), v3poolsrepo.V3PoolCacheRepoConfig{
+		RedisServer: env.REDIS_SERVER,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	v3TransactionDBRepo, err := v3transactionrepo.NewDBRepo(v3transactionrepo.V3TransactionDBRepoDependencies{
+		Database: pgDB,
+	})
+	if err != nil {
+		panic(err)
+	}
+
 	arbitrageServiceDependencies := arbitrageservice.ArbitrageServiceDependencies{
-		TokenRepo:       tokenRepo,
-		V3PoolCacheRepo: V3PoolCacheRepo,
+		TokenRepo:           tokenRepo,
+		V3PoolCacheRepo:     v3PoolCacheRepo,
+		V3PoolDBRepo:        v3PoolDBRepo,
+		V3TransactionDBRepo: v3TransactionDBRepo,
 	}
 
 	var chainID uint = 1
@@ -55,5 +74,33 @@ func main() {
 		panic(err)
 	}
 
-	arbitrageService.Start(context.Background())
+	command := flag.String("command", "", "What command to run, empty = grpc")
+	flag.Parse()
+
+	if command == nil || *command == "" || *command == "grpc" {
+		gRPCConfig := arbitragegrpc.ArbitrageGRPCServerConfig{
+			Port: env.ARBITRAGE_GRPC_PORT,
+		}
+		gRPCDependencies := arbitragegrpc.ArbitrageGRPCServerDependencies{
+			ArbitrageService: arbitrageService,
+		}
+		gRPCServer, err := arbitragegrpc.New(gRPCConfig, gRPCDependencies)
+		if err != nil {
+			panic(err)
+		}
+
+		err = gRPCServer.Start()
+		if err != nil {
+			panic(err)
+		}
+
+	}
+
+	switch *command {
+	case "oldArbs":
+		err := arbitrageService.FindOldArbs()
+		if err != nil {
+			panic(err)
+		}
+	}
 }

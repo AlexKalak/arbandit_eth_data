@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"time"
 
@@ -64,7 +63,7 @@ func (s *poolUpdaterService) Start(ctx context.Context) error {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: []string{s.config.KafkaServer},
 		Topic:   s.config.KafkaUpdateV3PoolsTopic,
-		GroupID: "ssanina22",
+		GroupID: "ssanina2281337",
 	})
 
 	defer reader.Close()
@@ -81,7 +80,7 @@ func (s *poolUpdaterService) Start(ctx context.Context) error {
 		}
 
 		msgCount += 1
-		if time.Now().Sub(lastTimeLogged) > time.Second {
+		if time.Since(lastTimeLogged) > time.Second {
 			fmt.Println(msgCount, "messages")
 			msgCount = 0
 			lastTimeLogged = time.Now()
@@ -89,7 +88,6 @@ func (s *poolUpdaterService) Start(ctx context.Context) error {
 
 		err = s.handlePoolEventMessageForCache(&m)
 		if err != nil {
-			// fmt.Println("Error parsing message: ", err)
 			continue
 		}
 
@@ -107,6 +105,7 @@ func (s *poolUpdaterService) handlePoolEventMessageForCache(m *kafka.Message) er
 	if err := json.Unmarshal(m.Value, &metaData); err != nil {
 		return err
 	}
+	fmt.Println(metaData.Type)
 
 	if metaData.Type == "BlockOver" {
 		// fmt.Println("BLOCK OVER: ", metaData.BlockNumber)
@@ -143,95 +142,18 @@ func (s *poolUpdaterService) handlePoolEventMessageForCache(m *kafka.Message) er
 	case "Swap":
 		s.handleSwapEventForCache(metaData, m)
 	case "Mint":
-		data := poolEventData[mintEventData]{}
-		if err := json.Unmarshal(m.Value, &data); err != nil {
-			return err
-		}
-
-		poolIdentificator := models.V3PoolIdentificator{
-			Address: metaData.Address,
-			ChainID: s.config.ChainID,
-		}
-
-		pool := models.UniswapV3Pool{}
-		if existingPool, ok := s.currentBlockPoolChanges[poolIdentificator]; ok {
-			pool = existingPool
-		} else {
-			var err error
-			pool, err = s.v3PoolCacheRepo.GetPoolByIdentificator(poolIdentificator)
-			if err != nil {
-				return err
-			}
-		}
-
-		if data.Data.TickLower < int32(pool.Tick) && int32(pool.Tick) < data.Data.TickUpper {
-			pool.Liquidity.Add(pool.Liquidity, data.Data.Amount)
-
-			token0, ok0 := s.tokensMapForCache[models.TokenIdentificator{Address: pool.Token0, ChainID: s.config.ChainID}]
-			token1, ok1 := s.tokensMapForCache[models.TokenIdentificator{Address: pool.Token1, ChainID: s.config.ChainID}]
-			if !ok0 || !ok1 {
-				return errors.New("pool tokens not found")
-			}
-			//Updating zfo10usdrate and nonzfo10usdrate
-			err := v3poolexchangable.UpdateRateFor10USD(&pool, token0, token1)
-			if err != nil {
-				pool.NonZfo10USDRate = big.NewFloat(0)
-				pool.Zfo10USDRate = big.NewFloat(0)
-			}
-		}
-
-		s.currentBlockPoolChanges[poolIdentificator] = pool
+		s.handleMintEventForCache(metaData, m)
 	case "Burn":
-		data := poolEventData[burnEventData]{}
-		if err := json.Unmarshal(m.Value, &data); err != nil {
-			return err
-		}
-
-		poolIdentificator := models.V3PoolIdentificator{
-			Address: metaData.Address,
-			ChainID: s.config.ChainID,
-		}
-
-		pool := models.UniswapV3Pool{}
-		if existingPool, ok := s.currentBlockPoolChanges[poolIdentificator]; ok {
-			pool = existingPool
-		} else {
-			var err error
-			pool, err = s.v3PoolCacheRepo.GetPoolByIdentificator(poolIdentificator)
-			if err != nil {
-				return err
-			}
-		}
-
-		if data.Data.TickLower < int32(pool.Tick) && int32(pool.Tick) < data.Data.TickUpper {
-			pool.Liquidity.Sub(pool.Liquidity, data.Data.Amount)
-
-			token0, ok0 := s.tokensMapForCache[models.TokenIdentificator{Address: pool.Token0, ChainID: s.config.ChainID}]
-			token1, ok1 := s.tokensMapForCache[models.TokenIdentificator{Address: pool.Token1, ChainID: s.config.ChainID}]
-			if !ok0 || !ok1 {
-				return errors.New("Pool tokens not found")
-			}
-
-			//Updating zfo10usdrate and nonzfo10usdrate
-			err := v3poolexchangable.UpdateRateFor10USD(&pool, token0, token1)
-			if err != nil {
-				pool.NonZfo10USDRate = big.NewFloat(0)
-				pool.Zfo10USDRate = big.NewFloat(0)
-			}
-		}
-
-		s.currentBlockPoolChanges[poolIdentificator] = pool
-
+		s.handleBurnEventForCache(metaData, m)
 	default:
 		// return errors.New("message type not found")
-
 	}
 
 	return nil
 }
 
 func (s *poolUpdaterService) handleSwapEventForCache(metaData poolEventMetaData, m *kafka.Message) error {
-	// fmt.Println("Swap for cache")
+	fmt.Println("Swap for cache", metaData.Address)
 	data := poolEventData[swapEventData]{}
 	if err := json.Unmarshal(m.Value, &data); err != nil {
 		return err
@@ -260,35 +182,19 @@ func (s *poolUpdaterService) handleSwapEventForCache(metaData poolEventMetaData,
 		return errors.New("pool tokens not found")
 	}
 
-	// Updating zfo10usdrate and nonzfo10usdrate
-	err := v3poolexchangable.UpdateRateFor10USD(&pool, token0, token1)
-	if err != nil {
-		pool.NonZfo10USDRate = big.NewFloat(0)
-		pool.Zfo10USDRate = big.NewFloat(0)
-	}
-
-	pool.Liquidity = data.Data.Liquidity
-	pool.SqrtPriceX96 = data.Data.SqrtPriceX96
-	pool.Tick = int(data.Data.Tick.Int64())
-
-	updatingImpact, err := s.updateTokensImpactsForV3Swap(&pool, token0, token1)
+	err := s.updatePoolForSwapEvent(&pool, data, token0, token1)
 	if err != nil {
 		return err
 	}
-	if updatingImpact != nil {
-		switch updatingImpact.TokenAddress {
-		case token0.Address:
-			// fmt.Println("Updated cache impact for token0: ", token0.Symbol)
-			s.tokenCacheRepo.SetToken(token0)
-		case token1.Address:
-			// fmt.Println("Updated cache impact for token1: ", token1.Symbol)
-			s.tokenCacheRepo.SetToken(token1)
-		}
+
+	err = s.updateImpactsForCache(&pool, token0, token1)
+	if err != nil {
+		return err
 	}
 
 	s.currentBlockPoolChanges[poolIdentificator] = pool
 
-	v3Tx := models.V3Transaction{
+	v3Swap := models.V3Swap{
 		TxHash:                metaData.TxHash,
 		TxTimestamp:           metaData.TxTimestamp,
 		PoolAddress:           metaData.Address,
@@ -300,9 +206,182 @@ func (s *poolUpdaterService) handleSwapEventForCache(metaData poolEventMetaData,
 		ArchiveToken1USDPrice: token1.USDPrice,
 	}
 
-	return s.v3TransactionCacheRepo.StreamTransaction(v3Tx)
+	return s.v3TransactionCacheRepo.StreamSwap(v3Swap)
+
+}
+
+func (s *poolUpdaterService) handleMintEventForCache(metaData poolEventMetaData, m *kafka.Message) error {
+	fmt.Println("Mint evet")
+	data := poolEventData[mintEventData]{}
+	if err := json.Unmarshal(m.Value, &data); err != nil {
+		return err
+	}
+
+	poolIdentificator := models.V3PoolIdentificator{
+		Address: metaData.Address,
+		ChainID: s.config.ChainID,
+	}
+
+	pool := models.UniswapV3Pool{}
+	if existingPool, ok := s.currentBlockPoolChanges[poolIdentificator]; ok {
+		pool = existingPool
+	} else {
+		var err error
+		pool, err = s.v3PoolCacheRepo.GetPoolByIdentificator(poolIdentificator)
+		if err != nil {
+			return err
+		}
+	}
+
+	err := s.handleTicksForMintBurn(&pool, int(data.Data.TickLower), int(data.Data.TickUpper), data.Data.Amount)
+	if err != nil {
+		return err
+	}
+
+	s.currentBlockPoolChanges[poolIdentificator] = pool
+
+	return err
+}
+
+func (s *poolUpdaterService) handleBurnEventForCache(metaData poolEventMetaData, m *kafka.Message) error {
+	fmt.Println("Burn evet")
+	data := poolEventData[mintEventData]{}
+	if err := json.Unmarshal(m.Value, &data); err != nil {
+		return err
+	}
+
+	poolIdentificator := models.V3PoolIdentificator{
+		Address: metaData.Address,
+		ChainID: s.config.ChainID,
+	}
+
+	pool := models.UniswapV3Pool{}
+	if existingPool, ok := s.currentBlockPoolChanges[poolIdentificator]; ok {
+		pool = existingPool
+	} else {
+		var err error
+		pool, err = s.v3PoolCacheRepo.GetPoolByIdentificator(poolIdentificator)
+		if err != nil {
+			return err
+		}
+	}
+
+	err := s.handleTicksForMintBurn(&pool, int(data.Data.TickLower), int(data.Data.TickUpper), data.Data.Amount)
+	if err != nil {
+		return err
+	}
+
+	s.currentBlockPoolChanges[poolIdentificator] = pool
+
+	return err
+}
+
+func (s *poolUpdaterService) updateImpactsForCache(pool *models.UniswapV3Pool, token0, token1 *models.Token) error {
+	updatedImpact, err := s.updateTokensImpactsForV3Swap(pool, token0, token1)
+	if err != nil {
+		return err
+	}
+
+	if updatedImpact != nil {
+		switch updatedImpact.TokenAddress {
+		case token0.Address:
+			// fmt.Println("Updated cache impact for token0: ", token0.Symbol)
+			s.tokenCacheRepo.SetToken(token0)
+		case token1.Address:
+			// fmt.Println("Updated cache impact for token1: ", token1.Symbol)
+			s.tokenCacheRepo.SetToken(token1)
+		}
+	}
+
+	return err
+}
+
+func (s *poolUpdaterService) updatePoolForSwapEvent(pool *models.UniswapV3Pool, data poolEventData[swapEventData], token0 *models.Token, token1 *models.Token) error {
+	newTick := int(data.Data.Tick.Int64())
+	pool.Tick = newTick
+	if pool.Tick < pool.TickLower || pool.Tick > pool.TickUpper {
+		pool.UpdateTickLowerUpper()
+	}
+
+	oldZfo := new(big.Float)
+	oldZfo.Set(pool.Zfo10USDRate)
+
+	pool.Liquidity = data.Data.Liquidity
+	pool.SqrtPriceX96 = data.Data.SqrtPriceX96
+
+	err := v3poolexchangable.UpdateRateFor10USD(pool, token0, token1)
+	if err != nil {
+		pool.Zfo10USDRate = big.NewFloat(0)
+		pool.NonZfo10USDRate = big.NewFloat(0)
+		pool.IsDusty = true
+	}
+
 	return nil
 }
+
+func (s *poolUpdaterService) handleTicksForMintBurn(pool *models.UniswapV3Pool, tickLower, tickUpper int, amount *big.Int) error {
+	positionLowerTick := models.UniswapV3PoolTick{
+		TickIdx:      tickLower,
+		LiquidityNet: amount,
+	}
+	positionUpperTick := models.UniswapV3PoolTick{
+		TickIdx:      tickUpper,
+		LiquidityNet: new(big.Int).Neg(amount),
+	}
+	newTicks := []models.UniswapV3PoolTick{positionLowerTick, positionUpperTick}
+
+	s.addNewTicksForPool(pool, newTicks)
+
+	if positionLowerTick.TickIdx < pool.Tick && pool.Tick < positionUpperTick.TickIdx {
+		pool.Liquidity.Add(pool.Liquidity, amount)
+		err := s.updatePoolRates(pool)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *poolUpdaterService) addNewTicksForPool(pool *models.UniswapV3Pool, newTicks []models.UniswapV3PoolTick) {
+	initializedTicks := pool.GetTicks()
+	updatedInitializedTicks := []models.UniswapV3PoolTick{}
+
+	fmt.Println("prevTicks: ", len(initializedTicks))
+
+	for _, newTick := range newTicks {
+		for i := range initializedTicks {
+			if newTick.TickIdx == initializedTicks[i].TickIdx {
+				initializedTicks[i].LiquidityNet.Add(initializedTicks[i].LiquidityNet, newTick.LiquidityNet)
+				break
+			}
+
+			if i == len(initializedTicks)-1 {
+				if newTick.TickIdx > initializedTicks[i].TickIdx {
+					initializedTicks = append(
+						initializedTicks,
+						newTick,
+					)
+				}
+
+				break
+			}
+
+			if newTick.TickIdx > initializedTicks[i].TickIdx && newTick.TickIdx < initializedTicks[i+1].TickIdx {
+				updatedInitializedTicks = append(initializedTicks[:i+1], newTick)
+				updatedInitializedTicks = append(updatedInitializedTicks, initializedTicks[i+1:]...)
+				break
+			}
+
+		}
+	}
+
+	fmt.Println("newTicks: ", len(updatedInitializedTicks))
+
+	pool.SetTicks(initializedTicks)
+}
+
+////DATABASE HANDLING
 
 func (s *poolUpdaterService) startPostgresUpdater(ctx context.Context, chanel <-chan *kafka.Message) error {
 	for {
@@ -363,35 +442,6 @@ func (s *poolUpdaterService) handleSwapEventDB(metaData poolEventMetaData, m *ka
 		return err
 	}
 
-	newTick := int(data.Data.Tick.Int64())
-
-	if newTick < pool.TickLower || newTick > pool.TickUpper {
-		fmt.Println("Checking new tick: ", newTick)
-		fmt.Println("Old ticks: ", pool.Tick, pool.TickLower, pool.TickUpper)
-
-		var lowerTick int64 = math.MinInt64
-		var upperTick int64 = math.MaxInt64
-
-		initializedTicks := pool.NearTicks()
-		fmt.Println("initializedTicks: ", initializedTicks)
-
-		for _, tick := range initializedTicks {
-			if int64(tick) > lowerTick && tick < newTick {
-				lowerTick = int64(tick)
-			} else if upperTick > int64(tick) && tick > newTick {
-				upperTick = int64(tick)
-			}
-		}
-
-		if lowerTick > math.MinInt64 && upperTick < math.MaxInt64 {
-			pool.TickLower = int(lowerTick)
-			pool.TickUpper = int(upperTick)
-		}
-	}
-
-	oldZfo := new(big.Float)
-	oldZfo.Set(pool.Zfo10USDRate)
-
 	token0, ok0 := s.tokensMapForDB[models.TokenIdentificator{Address: pool.Token0, ChainID: s.config.ChainID}]
 	token1, ok1 := s.tokensMapForDB[models.TokenIdentificator{Address: pool.Token1, ChainID: s.config.ChainID}]
 
@@ -399,18 +449,52 @@ func (s *poolUpdaterService) handleSwapEventDB(metaData poolEventMetaData, m *ka
 		return errors.New("pool tokens not found")
 	}
 
-	err = v3poolexchangable.UpdateRateFor10USD(&pool, token0, token1)
+	err = s.updatePoolForSwapEvent(&pool, data, token0, token1)
 	if err != nil {
-		pool.Zfo10USDRate = big.NewFloat(0)
-		pool.NonZfo10USDRate = big.NewFloat(0)
-		pool.IsDusty = true
+		return err
+	}
+	err = s.updateImpactsForDB(&pool, token0, token1)
+	if err != nil {
+		return err
 	}
 
-	pool.Liquidity = data.Data.Liquidity
-	pool.SqrtPriceX96 = data.Data.SqrtPriceX96
-	pool.Tick = newTick
+	err = s.v3PoolDBRepo.UpdatePoolColumns(pool, []string{
+		models.UNISWAP_V3_POOL_LIQUIDITY,
+		models.UNISWAP_V3_POOL_SQRTPRICEX96,
+		models.UNISWAP_V3_POOL_TICK,
+		models.UNISWAP_V3_NON_ZFO_10USD_RATE,
+		models.UNISWAP_V3_ZFO_10USD_RATE,
+		models.UNISWAP_V3_POOL_BLOCK_NUMBER,
+		models.UNISWAP_V3_POOL_IS_DUSTY,
+	})
+	if err != nil {
+		return err
+	}
 
-	updatedImpact, err := s.updateTokensImpactsForV3Swap(&pool, token0, token1)
+	v3Swap := models.V3Swap{
+		TxHash:                metaData.TxHash,
+		TxTimestamp:           metaData.TxTimestamp,
+		PoolAddress:           metaData.Address,
+		ChainID:               s.config.ChainID,
+		BlockNumber:           metaData.BlockNumber,
+		Amount0:               data.Data.Amount0,
+		Amount1:               data.Data.Amount1,
+		ArchiveToken0USDPrice: token0.USDPrice,
+		ArchiveToken1USDPrice: token1.USDPrice,
+	}
+	fmt.Println("TXTIMESTAMP: ", v3Swap.TxTimestamp)
+
+	err = s.v3TransactionDBRepo.CreateSwap(&v3Swap)
+	if err != nil {
+		fmt.Println("error creating tx:", err)
+		return err
+	}
+
+	return nil
+}
+
+func (s *poolUpdaterService) updateImpactsForDB(pool *models.UniswapV3Pool, token0, token1 *models.Token) error {
+	updatedImpact, err := s.updateTokensImpactsForV3Swap(pool, token0, token1)
 	if err != nil {
 		return err
 	}
@@ -429,39 +513,7 @@ func (s *poolUpdaterService) handleSwapEventDB(metaData poolEventMetaData, m *ka
 		}
 	}
 
-	err = s.v3PoolDBRepo.UpdatePoolColumns(pool, []string{
-		models.UNISWAP_V3_POOL_LIQUIDITY,
-		models.UNISWAP_V3_POOL_SQRTPRICEX96,
-		models.UNISWAP_V3_POOL_TICK,
-		models.UNISWAP_V3_NON_ZFO_10USD_RATE,
-		models.UNISWAP_V3_ZFO_10USD_RATE,
-		models.UNISWAP_V3_POOL_BLOCK_NUMBER,
-		models.UNISWAP_V3_POOL_IS_DUSTY,
-	})
-	if err != nil {
-		return err
-	}
-
-	v3Tx := models.V3Transaction{
-		TxHash:                metaData.TxHash,
-		TxTimestamp:           metaData.TxTimestamp,
-		PoolAddress:           metaData.Address,
-		ChainID:               s.config.ChainID,
-		BlockNumber:           metaData.BlockNumber,
-		Amount0:               data.Data.Amount0,
-		Amount1:               data.Data.Amount1,
-		ArchiveToken0USDPrice: token0.USDPrice,
-		ArchiveToken1USDPrice: token1.USDPrice,
-	}
-	fmt.Println("TXTIMESTAMP: ", v3Tx.TxTimestamp)
-
-	err = s.v3TransactionDBRepo.CreateTransaction(&v3Tx)
-	if err != nil {
-		fmt.Println("error creating tx:", err)
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func (s *poolUpdaterService) handleMintEventDB(metaData poolEventMetaData, m *kafka.Message) error {
@@ -481,49 +533,11 @@ func (s *poolUpdaterService) handleMintEventDB(metaData poolEventMetaData, m *ka
 	if err != nil {
 		return err
 	}
+
 	pool.BlockNumber = int(metaData.BlockNumber)
-
-	initializedTicks := pool.NearTicks()
-
-	newTickLower := int(data.Data.TickLower)
-	newTickUpper := int(data.Data.TickUpper)
-	newTicks := []int{newTickLower, newTickUpper}
-
-	for newTick := range newTicks {
-		for i := range initializedTicks {
-			if i == len(initializedTicks)-1 {
-				if newTick > initializedTicks[i] {
-					initializedTicks = append(initializedTicks, newTick)
-				}
-
-				break
-			}
-
-			if newTick > initializedTicks[i] && newTick < initializedTicks[i+1] {
-				initializedTicks = append(initializedTicks, initializedTicks[:i+1]...)
-				initializedTicks = append(initializedTicks, newTick)
-				initializedTicks = append(initializedTicks, initializedTicks[i+1:]...)
-				break
-			}
-
-		}
-
-	}
-
-	if newTickLower < pool.Tick && pool.Tick < newTickUpper {
-		token0, ok0 := s.tokensMapForDB[models.TokenIdentificator{Address: pool.Token0, ChainID: s.config.ChainID}]
-		token1, ok1 := s.tokensMapForDB[models.TokenIdentificator{Address: pool.Token1, ChainID: s.config.ChainID}]
-		if !ok0 || !ok1 {
-			return errors.New("pool tokens not found")
-		}
-		err := v3poolexchangable.UpdateRateFor10USD(&pool, token0, token1)
-		if err != nil {
-			pool.Zfo10USDRate = big.NewFloat(0)
-			pool.NonZfo10USDRate = big.NewFloat(0)
-			pool.IsDusty = true
-		}
-
-		pool.Liquidity.Add(pool.Liquidity, data.Data.Amount)
+	err = s.handleTicksForMintBurn(&pool, int(data.Data.TickLower), int(data.Data.TickUpper), data.Data.Amount)
+	if err != nil {
+		return err
 	}
 
 	err = s.v3PoolDBRepo.UpdatePoolColumns(pool, []string{
@@ -543,6 +557,7 @@ func (s *poolUpdaterService) handleMintEventDB(metaData poolEventMetaData, m *ka
 
 func (s *poolUpdaterService) handleBurnEventDB(metaData poolEventMetaData, m *kafka.Message) error {
 	fmt.Println("DB Burn")
+
 	data := poolEventData[burnEventData]{}
 	if err := json.Unmarshal(m.Value, &data); err != nil {
 		return err
@@ -559,47 +574,9 @@ func (s *poolUpdaterService) handleBurnEventDB(metaData poolEventMetaData, m *ka
 	}
 	pool.BlockNumber = int(metaData.BlockNumber)
 
-	initializedTicks := pool.NearTicks()
-
-	newTickLower := int(data.Data.TickLower)
-	newTickUpper := int(data.Data.TickUpper)
-	newTicks := []int{newTickLower, newTickUpper}
-
-	for newTick := range newTicks {
-		for i := range initializedTicks {
-			if i == len(initializedTicks)-1 {
-				if newTick > initializedTicks[i] {
-					initializedTicks = append(initializedTicks, newTick)
-				}
-
-				break
-			}
-
-			if newTick > initializedTicks[i] && newTick < initializedTicks[i+1] {
-				initializedTicks = append(initializedTicks, initializedTicks[:i+1]...)
-				initializedTicks = append(initializedTicks, newTick)
-				initializedTicks = append(initializedTicks, initializedTicks[i+1:]...)
-				break
-			}
-
-		}
-
-	}
-
-	if newTickLower < pool.Tick && pool.Tick < newTickUpper {
-		token0, ok0 := s.tokensMapForDB[models.TokenIdentificator{Address: pool.Token0, ChainID: s.config.ChainID}]
-		token1, ok1 := s.tokensMapForDB[models.TokenIdentificator{Address: pool.Token1, ChainID: s.config.ChainID}]
-		if !ok0 || !ok1 {
-			return errors.New("pool tokens not found")
-		}
-		err := v3poolexchangable.UpdateRateFor10USD(&pool, token0, token1)
-		if err != nil {
-			pool.Zfo10USDRate = big.NewFloat(0)
-			pool.NonZfo10USDRate = big.NewFloat(0)
-			pool.IsDusty = true
-		}
-
-		pool.Liquidity.Add(pool.Liquidity, data.Data.Amount)
+	err = s.handleTicksForMintBurn(&pool, int(data.Data.TickLower), int(data.Data.TickUpper), data.Data.Amount)
+	if err != nil {
+		return err
 	}
 
 	err = s.v3PoolDBRepo.UpdatePoolColumns(pool, []string{
@@ -612,6 +589,22 @@ func (s *poolUpdaterService) handleBurnEventDB(metaData poolEventMetaData, m *ka
 
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (s *poolUpdaterService) updatePoolRates(pool *models.UniswapV3Pool) error {
+	token0, ok0 := s.tokensMapForDB[models.TokenIdentificator{Address: pool.Token0, ChainID: s.config.ChainID}]
+	token1, ok1 := s.tokensMapForDB[models.TokenIdentificator{Address: pool.Token1, ChainID: s.config.ChainID}]
+	if !ok0 || !ok1 {
+		return errors.New("pool tokens not found")
+	}
+	err := v3poolexchangable.UpdateRateFor10USD(pool, token0, token1)
+	if err != nil {
+		pool.Zfo10USDRate = big.NewFloat(0)
+		pool.NonZfo10USDRate = big.NewFloat(0)
+		pool.IsDusty = true
 	}
 
 	return nil
@@ -663,7 +656,10 @@ func (s *poolUpdaterService) updateTokensImpactsForV3Swap(pool *models.UniswapV3
 		token0CurrentPoolImpact.USDPrice = token0USDPrice
 		token0CurrentPoolImpact.Impact = v3poolexchangable.GetImpactForPool(pool, int64(token1.Decimals), token1.USDPrice)
 
-		token0.USDPrice = token0.AveragePrice()
+		token0.USDPrice, err = token0.AveragePrice()
+		if err != nil {
+			return nil, err
+		}
 		updatedImpact = token0CurrentPoolImpact
 
 		// fmt.Println("new value: ", token0CurrentPoolImpact.USDPrice)
@@ -686,7 +682,11 @@ func (s *poolUpdaterService) updateTokensImpactsForV3Swap(pool *models.UniswapV3
 		token1CurrentPoolImpact.USDPrice = token1USDPrice
 		token1CurrentPoolImpact.Impact = v3poolexchangable.GetImpactForPool(pool, int64(token0.Decimals), token0.USDPrice)
 
-		token1.USDPrice = token1.AveragePrice()
+		token1.USDPrice, err = token1.AveragePrice()
+		if err != nil {
+			return nil, err
+		}
+
 		updatedImpact = token1CurrentPoolImpact
 
 		// fmt.Println("new value: ", token1CurrentPoolImpact.USDPrice)

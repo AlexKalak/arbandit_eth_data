@@ -1,7 +1,6 @@
 package exchangegraph
 
 import (
-	"errors"
 	"fmt"
 	"math/big"
 	"slices"
@@ -10,13 +9,11 @@ import (
 
 	"github.com/alexkalak/go_market_analyze/common/core/coreerrors/exchangegrapherrors"
 	"github.com/alexkalak/go_market_analyze/common/core/exchangables"
-	"github.com/alexkalak/go_market_analyze/common/core/exchangables/v3poolexchangable"
 	"github.com/alexkalak/go_market_analyze/common/models"
-	"github.com/alexkalak/go_market_analyze/common/repo/tokenrepo"
 )
 
 type ExchangesGraph interface {
-	FindAllArbs(maxDepth int, initAmount *big.Int)
+	FindAllArbs(maxDepth int, initAmount *big.Int) ([]Arbitrage, error)
 	FindArbs(startTokenIndex int, maxDepth int, initAmount *big.Int) ([]int, bool)
 	GetTokenByIndex(index int) (*models.Token, error)
 	GetTokenIndexByIdentificator(identificator models.TokenIdentificator) (int, error)
@@ -30,9 +27,9 @@ type edge struct {
 }
 
 type Arbitrage struct {
-	hops      []int
-	usedEdges []*edge
-	amounts   []*big.Int
+	Hops      []int
+	UsedEdges []*edge
+	Amounts   []*big.Int
 }
 
 type exchangesGraph struct {
@@ -43,21 +40,14 @@ type exchangesGraph struct {
 	exchangableIndexes map[string]int
 	exchangablesArray  []exchangables.Exchangable
 	edgesGraph         map[int][]edge
-	TokenRepo          tokenrepo.TokenRepo
 }
 
 type ExchangeGraphDependencies struct {
-	TokenRepo tokenrepo.TokenRepo
 }
 
 // New important all the exchangable to be on the same chain
 func New(arrayOfExchangables []exchangables.Exchangable, dependencies ExchangeGraphDependencies) (ExchangesGraph, error) {
 	res := exchangesGraph{}
-
-	if dependencies.TokenRepo == nil {
-		return nil, errors.New("invalid exchange graph dependencies, provide TokenRepo")
-	}
-	res.TokenRepo = dependencies.TokenRepo
 
 	fillExchangesGraphWithData(&res, arrayOfExchangables)
 
@@ -126,11 +116,14 @@ type Path struct {
 	amounts    []*big.Int
 }
 
-func (g *exchangesGraph) FindAllArbs(maxDepth int, initAmount *big.Int) {
+func (g *exchangesGraph) FindAllArbs(maxDepth int, initAmount *big.Int) ([]Arbitrage, error) {
 	tall := time.Now()
+
 	tokensLen := len(g.tokens)
 	fmt.Println("len tokens: ", tokensLen)
+
 	chunks := 16
+
 	wg := sync.WaitGroup{}
 	for chunk := range chunks {
 		start := tokensLen * chunk / chunks
@@ -145,28 +138,26 @@ func (g *exchangesGraph) FindAllArbs(maxDepth int, initAmount *big.Int) {
 	}
 	wg.Wait()
 
+	uniqueArbsResp := []Arbitrage{}
 	uniqueArbs := []struct {
 		len   int
 		elems map[int]int
 	}{}
 
 	for _, arb := range g.arbitrages {
-		// fmt.Println("uniq", uniqueArbs)
 		currentArb := struct {
 			len   int
 			elems map[int]int
 		}{
-			len:   len(arb.hops),
+			len:   len(arb.Hops),
 			elems: map[int]int{},
 		}
 
-		for _, hop := range arb.hops {
+		for _, hop := range arb.Hops {
 			currentArb.elems[hop] = 1
 		}
-		// fmt.Println("curr", currentArb)
 
 		found := false
-
 	uniqueArbsLoop:
 		for _, existingArb := range uniqueArbs {
 			if existingArb.len != currentArb.len {
@@ -183,37 +174,29 @@ func (g *exchangesGraph) FindAllArbs(maxDepth int, initAmount *big.Int) {
 			found = true
 			break
 		}
-
 		if found {
 			continue
 		}
 
 		uniqueArbs = append(uniqueArbs, currentArb)
-		// fmt.Printf("Init amount %s\n", arb.amountInit.String())
-		// fmt.Printf("End amount %s\n", arb.amountEnd.String())
+		uniqueArbsResp = append(uniqueArbsResp, arb)
 
-		for i, hop := range arb.hops {
-			token, err := g.TokenRepo.GetTokenByIdentificator(g.tokens[hop].GetIdentificator())
-			if err != nil {
-				fmt.Println("unable to print hops")
-				break
-			}
+		for i, hop := range arb.Hops {
+			token := g.tokens[hop]
 
 			if i == 0 {
-				fmt.Printf(" -> %s - %s \n", arb.amounts[i], token.Symbol)
+				fmt.Printf(" -> %s - %s \n", arb.Amounts[i], token.Symbol)
 			} else {
-				edge := arb.usedEdges[i-1]
-				v3Exchangable, ok := edge.Exchangable.(*v3poolexchangable.ExchangableUniswapV3Pool)
-				if ok {
-					v3Exchangable.ImitateSwap(arb.amounts[i-1], edge.Zfo)
-				}
-				fmt.Printf(" -> %s %s - %s \n", arb.amounts[i], token.Symbol, edge.Exchangable.Address())
+				edge := arb.UsedEdges[i-1]
+				fmt.Printf(" -> %s %s - %s \n", arb.Amounts[i], token.Symbol, edge.Exchangable.Address())
 			}
 		}
 		fmt.Println("")
 
 	}
+
 	fmt.Println("Total time elapsed: ", time.Since(tall).Milliseconds(), "ms")
+	return uniqueArbsResp, nil
 }
 
 func (g *exchangesGraph) FindArbs(startTokenIndex int, maxDepth int, initAmount *big.Int) ([]int, bool) {
@@ -283,14 +266,14 @@ func (g *exchangesGraph) FindArbs(startTokenIndex int, maxDepth int, initAmount 
 			usedEdgesUpdated = append(usedEdgesUpdated, &e)
 
 			if next == startTokenIndex {
-				if new(big.Int).Sub(newAmount, new(big.Int).Div(newAmount, big.NewInt(200))).Cmp(amountInt) > 0 {
+				if new(big.Int).Sub(newAmount, new(big.Int).Div(newAmount, big.NewInt(100))).Cmp(amountInt) > 0 {
 					g.mu.Lock()
 					totalCount++
 
 					g.arbitrages = append(g.arbitrages, Arbitrage{
-						hops:      updatedHops,
-						usedEdges: usedEdgesUpdated,
-						amounts:   updatedAmounts,
+						Hops:      updatedHops,
+						UsedEdges: usedEdgesUpdated,
+						Amounts:   updatedAmounts,
 					})
 
 					g.mu.Unlock()

@@ -3,20 +3,20 @@ package models
 import "math/big"
 
 const (
-	V3_TRANSACTION_TABLE                    = "v3_pool_transactions"
-	V3_TRANSACTION_ID                       = "id"
-	V3_TRANSACTION_CHAIN_ID                 = "chain_id"
-	V3_TRANSACTION_POOL_ADDRESS             = "pool_address"
-	V3_TRANSACTION_TX_HASH                  = "tx_hash"
-	V3_TRANSACTION_TX_TIMESTAMP             = "tx_timestamp"
-	V3_TRANSACTION_BLOCK_NUMBER             = "block_number"
-	V3_TRANSACTION_AMOUNT0                  = "amount0"
-	V3_TRANSACTION_AMOUNT1                  = "amount1"
-	V3_TRANSACTION_ARCHIVE_TOKEN0_USD_PRICE = "archive_token0_usd_price"
-	V3_TRANSACTION_ARCHIVE_TOKEN1_USD_PRICE = "archive_token1_usd_price"
+	V3_SWAP_TABLE                    = "v3_pool_swaps"
+	V3_SWAP_ID                       = "id"
+	V3_SWAP_CHAIN_ID                 = "chain_id"
+	V3_SWAP_POOL_ADDRESS             = "pool_address"
+	V3_SWAP_TX_HASH                  = "tx_hash"
+	V3_SWAP_TX_TIMESTAMP             = "tx_timestamp"
+	V3_SWAP_BLOCK_NUMBER             = "block_number"
+	V3_SWAP_AMOUNT0                  = "amount0"
+	V3_SWAP_AMOUNT1                  = "amount1"
+	V3_SWAP_ARCHIVE_TOKEN0_USD_PRICE = "archive_token0_usd_price"
+	V3_SWAP_ARCHIVE_TOKEN1_USD_PRICE = "archive_token1_usd_price"
 )
 
-type V3Transaction struct {
+type V3Swap struct {
 	ID                    int        `json:"id"`
 	PoolAddress           string     `json:"pool_address"`
 	ChainID               uint       `json:"chain_id"`

@@ -193,10 +193,8 @@ var feeDenominator = 100 * 10_000
 var feeDenominatorB = big.NewInt(int64(feeDenominator))
 
 func (e *ExchangableUniswapV3PoolRaw) ImitateSwap(amountIn *big.Int, zfo bool) (*big.Int, error) {
-
 	amountInAfterFee := new(big.Int).Mul(amountIn, big.NewInt(int64(feeDenominator)-int64(e.Pool.FeeTier)))
 	amountInAfterFee.Div(amountInAfterFee, feeDenominatorB)
-
 	// amountInAfterFee := amountIn
 
 	if e.Pool.Liquidity.Cmp(big.NewInt(0)) <= 0 {
@@ -207,67 +205,106 @@ func (e *ExchangableUniswapV3PoolRaw) ImitateSwap(amountIn *big.Int, zfo bool) (
 		return nil, exchangableerrors.ErrInvalidPool
 	}
 
-	if e.Pool.TickLower == 0 || e.Pool.TickUpper == 0 {
+	if !e.Pool.TicksValid() {
 		return nil, errors.New("no lower upper tick info")
 	}
 
 	remaining := new(big.Int).Set(amountInAfterFee)
 	amountOutTotal := new(big.Int)
 
+	activeLiquidity := new(big.Int).Set(e.Pool.Liquidity)
 	currentTick := e.Pool.Tick
-	currentSqrtPX96 := e.Pool.SqrtPriceX96
+
+	currentSqrtPX96 := new(big.Int).Set(e.Pool.SqrtPriceX96)
+
+	ticks := e.Pool.GetTicks()
+
+	lowerTickArrayIndex := -1
+	for i := 0; i < len(ticks)-1; i++ {
+		if currentTick >= ticks[i].TickIdx && currentTick < ticks[i+1].TickIdx {
+			lowerTickArrayIndex = i
+			break
+		}
+	}
+
+	if lowerTickArrayIndex == -1 {
+		return nil, errors.New("tick not in bounds of lower/upper")
+	}
+	// if e.Pool.Address == "0xc07044d4b947e7c5701f1922db048c6b47799b84" {
+	// 	fmt.Println("======")
+	// }
+
+	nextTick := models.UniswapV3PoolTick{
+		TickIdx:      e.Pool.Tick,
+		LiquidityNet: big.NewInt(0),
+	}
 
 	for remaining.Sign() > 0 {
-		nextTick := 0
-		shifting := min(e.Pool.TickSpacing, 150)
 
-		if zfo {
-			nextTick = currentTick - shifting
-			if nextTick < e.Pool.Tick-shifting {
-				return nil, errors.New("too much slippage")
-			}
-
-		} else {
-			nextTick = currentTick + e.Pool.TickSpacing
-			if nextTick > e.Pool.Tick+shifting {
-				return nil, errors.New("too much slippage")
-			}
+		if lowerTickArrayIndex < 0 || lowerTickArrayIndex+1 >= len(ticks) {
+			return nil, errors.New("out of initialized ticks")
 		}
 
-		// if nextTick < e.Pool.TickLower || nextTick > e.Pool.TickUpper {
-		// 	return nil, errors.New("tick out of space")
-		//
-		// }
+		if zfo {
+			activeLiquidity.Sub(activeLiquidity, nextTick.LiquidityNet)
 
-		if nextTick < -887272 || nextTick > 887272 {
+			//lower index
+			nextTick = ticks[lowerTickArrayIndex]
+			lowerTickArrayIndex -= 1
+		} else {
+			activeLiquidity.Add(activeLiquidity, nextTick.LiquidityNet)
+
+			//upper index
+			nextTick = ticks[lowerTickArrayIndex+1]
+			lowerTickArrayIndex += 1
+		}
+
+		if nextTick.TickIdx < -887272 || nextTick.TickIdx > 887272 {
 			return nil, errors.New("tick out of range")
 		}
+		// if e.Pool.Address == "0xc07044d4b947e7c5701f1922db048c6b47799b84" {
+		// 	fmt.Println("nextTick: ", nextTick)
+		// }
 
-		sqrtPTarget := tickToSqrtPriceX96(nextTick)
-
-		// fmt.Printf("Tick=%d price=%.10f -> target=%d price=%.10f\n",
-		// 	currentTick, sqrtPriceX96ToFloat(currentSqrtPX96), nextTick, sqrtPriceX96ToFloat(sqrtPTarget))
+		sqrtPTarget := tickToSqrtPriceX96(nextTick.TickIdx)
 
 		if zfo {
-			amtNeeded := amount0Delta(currentSqrtPX96, sqrtPTarget, e.Pool.Liquidity)
-			// fmt.Println("remaining: ", remaining.String())
-			// fmt.Println("amtNeeded: ", amtNeeded.String())
+			amtNeeded := amount0Delta(currentSqrtPX96, sqrtPTarget, activeLiquidity)
+			// if e.Pool.Address == "0xc07044d4b947e7c5701f1922db048c6b47799b84" {
+			// 	fmt.Println("amtNeeded: ", amtNeeded)
+			// }
+			// if e.Pool.Address == "0xc07044d4b947e7c5701f1922db048c6b47799b84" {
+			// 	fmt.Println("remaining: ", remaining)
+			// }
 
 			if remaining.Cmp(amtNeeded) >= 0 {
-				amtOut := amount1Delta(currentSqrtPX96, sqrtPTarget, e.Pool.Liquidity)
+				amtOut := amount1Delta(currentSqrtPX96, sqrtPTarget, activeLiquidity)
 				remaining.Sub(remaining, amtNeeded)
 				amountOutTotal.Add(amountOutTotal, amtOut)
 				currentSqrtPX96 = sqrtPTarget
-				currentTick = nextTick
 			} else {
-				invOld := new(big.Int).Div(new(big.Int).Mul(Q96, Q96), currentSqrtPX96)
-				term := new(big.Int).Mul(remaining, Q96)
-				term.Div(term, e.Pool.Liquidity)
-				invNew := new(big.Int).Sub(invOld, term)
-				sqrtPNew := new(big.Int).Div(new(big.Int).Mul(Q96, Q96), invNew)
+				// invOld := new(big.Int).Div(new(big.Int).Mul(Q96, Q96), currentSqrtPX96)
+				// term := new(big.Int).Mul(remaining, Q96)
+				// term.Div(term, activeLiquidity)
+				// invNew := new(big.Int).Sub(invOld, term)
+				// if e.Pool.Address == "0x16588709ca8f7b84829b43cc1c5cb7e84a321b16" {
+				// 	fmt.Println("term   : ", term)
+				// 	fmt.Println("Inv old: ", invOld)
+				// 	fmt.Println("Inv new: ", invNew)
+				// }
+				// sqrtPNew := new(big.Int).Div(new(big.Int).Mul(Q96, Q96), invNew)
+				//
 
-				amtOut := amount1Delta(currentSqrtPX96, sqrtPNew, e.Pool.Liquidity)
-				// fmt.Printf("partial move: used0=%s got1=%s\n", remaining, amtOut)
+				LOverX := new(big.Int).Set(Q96)
+				LOverX.Mul(LOverX, activeLiquidity)
+				LOverX.Div(LOverX, remaining)
+
+				num := new(big.Int).Mul(LOverX, currentSqrtPX96)
+				den := new(big.Int).Add(LOverX, currentSqrtPX96)
+				num.Div(num, den)
+				sqrtPNew := num
+
+				amtOut := amount1Delta(currentSqrtPX96, sqrtPNew, activeLiquidity)
 
 				amountOutTotal.Add(amountOutTotal, amtOut)
 				currentSqrtPX96 = sqrtPNew
@@ -275,22 +312,30 @@ func (e *ExchangableUniswapV3PoolRaw) ImitateSwap(amountIn *big.Int, zfo bool) (
 				break
 			}
 		} else {
-			amtNeeded := amount1Delta(currentSqrtPX96, sqrtPTarget, e.Pool.Liquidity)
-			// fmt.Println("remaining: ", remaining.String())
-			// fmt.Println("amtNeeded: ", amtNeeded.String())
+			amtNeeded := amount1Delta(currentSqrtPX96, sqrtPTarget, activeLiquidity)
+			// if e.Pool.Address == "0xc07044d4b947e7c5701f1922db048c6b47799b84" {
+			// 	fmt.Println("activeLiquidity: ", activeLiquidity)
+			// 	fmt.Println("currentTick: ", e.Pool.Tick)
+			// 	fmt.Println("nextTick: ", nextTick.TickIdx)
+			// 	fmt.Println("currentSqrtPX96: ", currentSqrtPX96)
+			// 	fmt.Println("sqrtPTarget: ", sqrtPTarget)
+			// 	fmt.Println("amtNeeded: ", amtNeeded)
+			// }
+			// if e.Pool.Address == "0xc07044d4b947e7c5701f1922db048c6b47799b84" {
+			// 	fmt.Println("remaining: ", remaining)
+			// }
 
 			if remaining.Cmp(amtNeeded) >= 0 {
-				amtOut := amount0Delta(currentSqrtPX96, sqrtPTarget, e.Pool.Liquidity)
+				amtOut := amount0Delta(currentSqrtPX96, sqrtPTarget, activeLiquidity)
 				remaining.Sub(remaining, amtNeeded)
 				amountOutTotal.Add(amountOutTotal, amtOut)
 				currentSqrtPX96 = sqrtPTarget
-				currentTick = nextTick
 			} else {
 				add := new(big.Int).Mul(remaining, Q96)
-				add.Div(add, e.Pool.Liquidity)
+				add.Div(add, activeLiquidity)
 				sqrtPNew := new(big.Int).Add(currentSqrtPX96, add)
 
-				amtOut := amount0Delta(currentSqrtPX96, sqrtPNew, e.Pool.Liquidity)
+				amtOut := amount0Delta(currentSqrtPX96, sqrtPNew, activeLiquidity)
 				// fmt.Printf("partial move: used0=%s got1=%s\n", remaining, amtOut)
 
 				amountOutTotal.Add(amountOutTotal, amtOut)
@@ -386,8 +431,12 @@ func (e *ExchangableUniswapV3PoolRaw) ImitateSwapWithLog(amountIn *big.Int, zfo 
 			}
 		} else {
 			amtNeeded := amount1Delta(currentSqrtPX96, sqrtPTarget, e.Pool.Liquidity)
-			fmt.Println("remaining: ", remaining.String())
-			fmt.Println("amtNeeded: ", amtNeeded.String())
+			if e.Pool.Address == "0xc07044d4b947e7c5701f1922db048c6b47799b84" {
+				fmt.Println("amtNeeded: ", amtNeeded)
+			}
+			if e.Pool.Address == "0xc07044d4b947e7c5701f1922db048c6b47799b84" {
+				fmt.Println("remaining: ", remaining)
+			}
 
 			if remaining.Cmp(amtNeeded) >= 0 {
 				amtOut := amount0Delta(currentSqrtPX96, sqrtPTarget, e.Pool.Liquidity)

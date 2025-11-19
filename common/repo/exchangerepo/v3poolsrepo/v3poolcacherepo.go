@@ -2,7 +2,6 @@ package v3poolsrepo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/alexkalak/go_market_analyze/common/models"
@@ -71,7 +70,7 @@ func (r *v3poolCacheRepo) GetPools(chainID uint) ([]models.UniswapV3Pool, error)
 	pools := make([]models.UniswapV3Pool, 0, len(poolsMap))
 	for _, poolStr := range poolsMap {
 		pool := models.UniswapV3Pool{}
-		err = json.Unmarshal([]byte(poolStr), &pool)
+		err = pool.FillFromJSON([]byte(poolStr))
 		if err != nil {
 			continue
 		}
@@ -100,7 +99,7 @@ func (r *v3poolCacheRepo) GetNonDustyPools(chainID uint) ([]models.UniswapV3Pool
 	pools := make([]models.UniswapV3Pool, 0, len(poolsMap))
 	for _, poolStr := range poolsMap {
 		pool := models.UniswapV3Pool{}
-		err = json.Unmarshal([]byte(poolStr), &pool)
+		err = pool.FillFromJSON([]byte(poolStr))
 		if err != nil {
 			continue
 		}
@@ -131,7 +130,7 @@ func (r *v3poolCacheRepo) GetPoolByIdentificator(poolIdentificator models.V3Pool
 	}
 
 	pool := models.UniswapV3Pool{}
-	err = json.Unmarshal([]byte(poolStr), &pool)
+	err = pool.FillFromJSON([]byte(poolStr))
 	if err != nil {
 		return models.UniswapV3Pool{}, err
 	}
@@ -148,7 +147,7 @@ func (r *v3poolCacheRepo) SetPools(chainID uint, pools []models.UniswapV3Pool) e
 	poolsForRedis := make([]string, 0, len(pools)*2)
 	for _, pool := range pools {
 		poolIdentificator := pool.GetIdentificator().String()
-		poolJSON, err := json.Marshal(&pool)
+		poolJSON, err := pool.GetJSON()
 		if err != nil {
 			return err
 		}
@@ -172,7 +171,7 @@ func (r *v3poolCacheRepo) SetPool(pool models.UniswapV3Pool) error {
 	}
 
 	poolIdentificator := pool.GetIdentificator().String()
-	poolJSON, err := json.Marshal(&pool)
+	poolJSON, err := pool.GetJSON()
 	if err != nil {
 		return err
 	}

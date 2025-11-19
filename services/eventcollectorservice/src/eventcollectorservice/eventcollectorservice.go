@@ -105,6 +105,7 @@ type rpcEventsCollector struct {
 	kafkaClient    kafkaClient
 	addresses      map[common.Address]any
 
+	averageBlockTime   time.Duration
 	lastLogTime        time.Time
 	lastLogBlockNumber uint64
 	ticker             *time.Ticker
@@ -189,6 +190,7 @@ func New(config RPCEventsCollectorServiceConfig, dependencies RPCEventCollectorS
 		lastCheckedBlock:     lastCheckedBlock,
 		lastCheckedBlockFile: lastCheckedBlockFile,
 		config:               config,
+		averageBlockTime:     14 * time.Second,
 		abis: map[abiName]v3ExchangeABI{
 			_UNISWAP_V3_ABI_NAME:     uniswapABI,
 			_PANCAKESWAP_V3_ABI_NAME: pancakeswapABI,

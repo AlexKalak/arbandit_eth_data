@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/alexkalak/go_market_analyze/common/helpers"
 	"github.com/alexkalak/go_market_analyze/common/models"
 	"github.com/alexkalak/go_market_analyze/common/periphery/pgdatabase"
 )
@@ -21,9 +20,12 @@ type TokenRepo interface {
 	GetTokensBySymbolsAndChainID(symbols []string, chainID uint) ([]*models.Token, error)
 	GetTokensByAddressesAndChainID(symbols []string, chainID uint) ([]*models.Token, error)
 	GetTokensByChainID(chainID uint) ([]*models.Token, error)
+
 	UpdateTokens(tokens []*models.Token) error
 	UpdateTokenPriceImpacts(impacts []*models.TokenPriceImpact) error
 	UpdateTokenPriceImpactAndTokenPrice(token *models.Token, impact *models.TokenPriceImpact) error
+
+	DeleteV3PoolImpacts(chainID uint) error
 }
 
 type TokenDBRepoDependencies struct {
@@ -178,9 +180,6 @@ func (r *tokenRepo) GetTokensByChainID(chainID uint) ([]*models.Token, error) {
 			impacts := token.GetImpacts()
 			impacts = append(impacts, &tokenPriceImpact)
 			token.SetImpacts(impacts)
-			if len(impacts) > 1 {
-				fmt.Println("Got existing token, appended impacts: ", helpers.GetJSONString(impacts))
-			}
 
 		}
 
@@ -517,5 +516,25 @@ func (r *tokenRepo) UpdateTokenPriceImpactAndTokenPrice(token *models.Token, imp
 	}
 
 	return tx.Commit()
+
+}
+
+func (r *tokenRepo) DeleteV3PoolImpacts(chainID uint) error {
+	db, err := r.pgDatabase.GetDB()
+	if err != nil {
+		return err
+	}
+
+	query := psql.
+		Delete(models.TOKEN_PRICE_IMPACT_TABLE).
+		Where(sq.Like{models.TOKEN_PRICE_IMPACT_EXCHANGE_IDENTIFIER: "%v3pool%"})
+
+	_, err = query.RunWith(db).Exec()
+	if err != nil {
+		fmt.Println("Error deleting v3pool impacts: ", err)
+		return err
+	}
+
+	return nil
 
 }

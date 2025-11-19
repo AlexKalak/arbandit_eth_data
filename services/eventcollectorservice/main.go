@@ -102,5 +102,8 @@ func main() {
 		panic(err)
 	}
 
-	eventCollectorService.StartFromBlockV3(context.Background(), poolAddresses)
+	err = eventCollectorService.StartFromBlockV3(context.Background(), poolAddresses)
+	if err != nil {
+		panic(err)
+	}
 }

@@ -199,9 +199,10 @@ func (c *rpcClient) handleGetPoolDataReturnBytes(pools []models.UniswapV3Pool, r
 		liquidityOut, err := c.v3PoolDataABI.Unpack("liquidity", liquidityData)
 		if err != nil {
 			fmt.Println("Error unpacking liquidity ", err)
-			return nil, err
+			continue
 		}
 		liquidity, ok := liquidityOut[0].(*big.Int)
+
 		if !ok {
 			return nil, errors.New("error convert liquidity")
 		}

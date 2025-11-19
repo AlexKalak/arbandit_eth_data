@@ -1,6 +1,7 @@
 package models
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -41,13 +42,27 @@ func (t *Token) SetImpacts(impacts []*TokenPriceImpact) {
 	t.mu.Lock()
 	t.impacts = impacts
 	t.mu.Unlock()
-	t.USDPrice = t.AveragePrice()
+	var err error
+	t.USDPrice, err = t.AveragePrice()
+	if err != nil {
+		t.USDPrice = big.NewFloat(0)
+	}
 }
 
 func (t *Token) GetRealAmount(amount *big.Int) *big.Float {
 	exp := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(t.Decimals)), nil)
 	return new(big.Float).Quo(new(big.Float).SetInt(amount), new(big.Float).SetInt(exp))
 
+}
+
+func (t *Token) FromUSD(amountUSD *big.Int) *big.Int {
+	amountRealForOneUSD := new(big.Float).Quo(big.NewFloat(1), t.USDPrice)
+	amountRealNeeded := new(big.Float).Mul(amountRealForOneUSD, new(big.Float).SetInt(amountUSD))
+
+	amount := new(big.Float).Mul(new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(t.Decimals)), nil)), amountRealNeeded)
+	amountInt, _ := amount.Int(nil)
+
+	return amountInt
 }
 
 func (t *Token) GetIdentificator() TokenIdentificator {
@@ -98,10 +113,15 @@ func (t *Token) GetTotalImpactInUSDReal() *big.Float {
 	return realAmountInUSD
 }
 
-func (t *Token) AveragePrice() *big.Float {
+func (t *Token) AveragePrice() (*big.Float, error) {
 	totalTokenAmount := new(big.Float).SetInt(t.GetTotalImpact())
-	totalAmountInUSD := t.GetTotalImpactInUSD()
-	return new(big.Float).Quo(new(big.Float).SetInt(totalAmountInUSD), totalTokenAmount)
+	totalImpactInUSD := t.GetTotalImpactInUSD()
+	if totalImpactInUSD.Cmp(big.NewInt(0)) == 0 ||
+		totalTokenAmount.Cmp(big.NewFloat(0)) == 0 {
+		return big.NewFloat(0), errors.New("cannot estimate token average price, because there is no impact")
+	}
+
+	return new(big.Float).Quo(new(big.Float).SetInt(totalImpactInUSD), totalTokenAmount), nil
 }
 
 const (

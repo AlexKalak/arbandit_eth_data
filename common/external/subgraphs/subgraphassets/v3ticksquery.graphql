@@ -1,0 +1,7 @@
+query GetTicks($first: Int!, $skip: Int!) {
+  ticks(first: $first, skip:$skip, where: {liquidityNet_not: 0}){
+      tickIdx
+      poolAddress
+      liquidityNet
+  }
+}

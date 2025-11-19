@@ -1,6 +1,8 @@
 package v3poolsrepo
 
 import (
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"math/big"
 
@@ -18,15 +20,14 @@ type V3PoolDBRepo interface {
 	GetPoolsByChainIDOrdered(chainID uint) ([]models.UniswapV3Pool, error)
 	GetPoolsByChainIDWith0BlockNumberOrdered(chainID uint) ([]models.UniswapV3Pool, error)
 	GetNotDustyPoolsByChainID(chainID uint) ([]models.UniswapV3Pool, error)
-	UpdatePoolsLiquiditySqrtPriceTickAndBlockNumber(pools []models.UniswapV3Pool) error
 	UpdatePoolsIsDusty(pools []models.UniswapV3Pool) error
 	SetAllPoolsToDusty(chainID uint) error
 	UpdatePoolsLowerUpperNearTicks(pools []models.UniswapV3Pool) error
 
 	UpdatePool(pool models.UniswapV3Pool) error
 	UpdatePoolLiquidityAndBlockNumber(pool models.UniswapV3Pool, blockNumber uint64) error
-	UpdatePoolLiquiditySqrtPriceTickAndBlockNumber(pool models.UniswapV3Pool, blockNumber uint64) error
 	UpdatePoolColumns(pool models.UniswapV3Pool, columns []string) error
+	UpdatePoolsColumns(pools []models.UniswapV3Pool, columns []string) error
 }
 
 var psql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
@@ -97,7 +98,7 @@ func (r *v3poolDBRepo) GetPoolByPoolIdentificator(poolIdentificator models.V3Poo
 			models.UNISWAP_V3_POOL_TICK_SPACING,
 			models.UNISWAP_V3_POOL_TICK_LOWER,
 			models.UNISWAP_V3_POOL_TICK_UPPER,
-			models.UNISWAP_V3_POOL_NEAR_TICKS,
+			models.UNISWAP_V3_POOL_TICKS,
 
 			models.UNISWAP_V3_POOL_FEE_TIER,
 			models.UNISWAP_V3_POOL_IS_DUSTY,
@@ -113,6 +114,7 @@ func (r *v3poolDBRepo) GetPoolByPoolIdentificator(poolIdentificator models.V3Poo
 
 	sqrtPriceX96Str := ""
 	liquidityStr := ""
+	nearTicksJSON := ""
 
 	zfo10str := ""
 	nonzfo10str := ""
@@ -131,7 +133,7 @@ func (r *v3poolDBRepo) GetPoolByPoolIdentificator(poolIdentificator models.V3Poo
 			&pool.TickSpacing,
 			&pool.TickLower,
 			&pool.TickUpper,
-			&pool.NearTicksJSON,
+			&nearTicksJSON,
 			&pool.FeeTier,
 			&pool.IsDusty,
 			&pool.BlockNumber,
@@ -166,6 +168,13 @@ func (r *v3poolDBRepo) GetPoolByPoolIdentificator(poolIdentificator models.V3Poo
 		nonzfo10 = big.NewFloat(0)
 	}
 
+	ticks := []models.UniswapV3PoolTick{}
+	err = json.Unmarshal([]byte(nearTicksJSON), &ticks)
+	if err != nil {
+		return models.UniswapV3Pool{}, err
+	}
+	pool.SetTicks(ticks)
+
 	pool.Zfo10USDRate = zfo10
 	pool.NonZfo10USDRate = nonzfo10
 
@@ -198,7 +207,7 @@ func (r *v3poolDBRepo) GetPools() ([]models.UniswapV3Pool, error) {
 			models.UNISWAP_V3_POOL_TICK_SPACING,
 			models.UNISWAP_V3_POOL_TICK_LOWER,
 			models.UNISWAP_V3_POOL_TICK_UPPER,
-			models.UNISWAP_V3_POOL_NEAR_TICKS,
+			models.UNISWAP_V3_POOL_TICKS,
 
 			models.UNISWAP_V3_POOL_FEE_TIER,
 			models.UNISWAP_V3_POOL_IS_DUSTY,
@@ -225,6 +234,7 @@ func (r *v3poolDBRepo) GetPools() ([]models.UniswapV3Pool, error) {
 
 		zfo10str := ""
 		nonzfo10str := ""
+		nearTicksJSON := ""
 
 		err := rows.Scan(
 			&pool.Address,
@@ -237,7 +247,7 @@ func (r *v3poolDBRepo) GetPools() ([]models.UniswapV3Pool, error) {
 			&pool.TickSpacing,
 			&pool.TickLower,
 			&pool.TickUpper,
-			&pool.NearTicksJSON,
+			&nearTicksJSON,
 			&pool.FeeTier,
 			&pool.IsDusty,
 			&pool.BlockNumber,
@@ -247,6 +257,13 @@ func (r *v3poolDBRepo) GetPools() ([]models.UniswapV3Pool, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		ticks := []models.UniswapV3PoolTick{}
+		err = json.Unmarshal([]byte(nearTicksJSON), &ticks)
+		if err != nil {
+			continue
+		}
+		pool.SetTicks(ticks)
 
 		sqrtPriceX96 := new(big.Int)
 		_, ok := sqrtPriceX96.SetString(sqrtPriceX96Str, 10)
@@ -301,7 +318,7 @@ func (r *v3poolDBRepo) GetPoolsByChainID(chainID uint) ([]models.UniswapV3Pool, 
 			models.UNISWAP_V3_POOL_TICK_SPACING,
 			models.UNISWAP_V3_POOL_TICK_LOWER,
 			models.UNISWAP_V3_POOL_TICK_UPPER,
-			models.UNISWAP_V3_POOL_NEAR_TICKS,
+			models.UNISWAP_V3_POOL_TICKS,
 
 			models.UNISWAP_V3_POOL_FEE_TIER,
 			models.UNISWAP_V3_POOL_IS_DUSTY,
@@ -329,6 +346,7 @@ func (r *v3poolDBRepo) GetPoolsByChainID(chainID uint) ([]models.UniswapV3Pool, 
 
 		zfo10str := ""
 		nonzfo10str := ""
+		nearTicksJSON := ""
 
 		err := rows.Scan(
 			&pool.Address,
@@ -341,7 +359,7 @@ func (r *v3poolDBRepo) GetPoolsByChainID(chainID uint) ([]models.UniswapV3Pool, 
 			&pool.TickSpacing,
 			&pool.TickLower,
 			&pool.TickUpper,
-			&pool.NearTicksJSON,
+			&nearTicksJSON,
 			&pool.FeeTier,
 			&pool.IsDusty,
 			&pool.BlockNumber,
@@ -352,6 +370,12 @@ func (r *v3poolDBRepo) GetPoolsByChainID(chainID uint) ([]models.UniswapV3Pool, 
 			return nil, err
 		}
 
+		ticks := []models.UniswapV3PoolTick{}
+		err = json.Unmarshal([]byte(nearTicksJSON), &ticks)
+		if err != nil {
+			continue
+		}
+		pool.SetTicks(ticks)
 		sqrtPriceX96 := new(big.Int)
 		_, ok := sqrtPriceX96.SetString(sqrtPriceX96Str, 10)
 		if !ok {
@@ -405,7 +429,7 @@ func (r *v3poolDBRepo) GetPoolsByChainIDOrdered(chainID uint) ([]models.UniswapV
 			models.UNISWAP_V3_POOL_TICK_SPACING,
 			models.UNISWAP_V3_POOL_TICK_LOWER,
 			models.UNISWAP_V3_POOL_TICK_UPPER,
-			models.UNISWAP_V3_POOL_NEAR_TICKS,
+			models.UNISWAP_V3_POOL_TICKS,
 
 			models.UNISWAP_V3_POOL_FEE_TIER,
 			models.UNISWAP_V3_POOL_IS_DUSTY,
@@ -434,6 +458,7 @@ func (r *v3poolDBRepo) GetPoolsByChainIDOrdered(chainID uint) ([]models.UniswapV
 
 		zfo10str := ""
 		nonzfo10str := ""
+		nearTicksJSON := ""
 
 		err := rows.Scan(
 			&pool.Address,
@@ -446,7 +471,7 @@ func (r *v3poolDBRepo) GetPoolsByChainIDOrdered(chainID uint) ([]models.UniswapV
 			&pool.TickSpacing,
 			&pool.TickLower,
 			&pool.TickUpper,
-			&pool.NearTicksJSON,
+			&nearTicksJSON,
 			&pool.FeeTier,
 			&pool.IsDusty,
 			&pool.BlockNumber,
@@ -456,6 +481,13 @@ func (r *v3poolDBRepo) GetPoolsByChainIDOrdered(chainID uint) ([]models.UniswapV
 		if err != nil {
 			return nil, err
 		}
+
+		ticks := []models.UniswapV3PoolTick{}
+		err = json.Unmarshal([]byte(nearTicksJSON), &ticks)
+		if err != nil {
+			continue
+		}
+		pool.SetTicks(ticks)
 
 		sqrtPriceX96 := new(big.Int)
 		_, ok := sqrtPriceX96.SetString(sqrtPriceX96Str, 10)
@@ -510,7 +542,7 @@ func (r *v3poolDBRepo) GetPoolsByChainIDWith0BlockNumberOrdered(chainID uint) ([
 			models.UNISWAP_V3_POOL_TICK_SPACING,
 			models.UNISWAP_V3_POOL_TICK_LOWER,
 			models.UNISWAP_V3_POOL_TICK_UPPER,
-			models.UNISWAP_V3_POOL_NEAR_TICKS,
+			models.UNISWAP_V3_POOL_TICKS,
 
 			models.UNISWAP_V3_POOL_FEE_TIER,
 			models.UNISWAP_V3_POOL_IS_DUSTY,
@@ -539,6 +571,7 @@ func (r *v3poolDBRepo) GetPoolsByChainIDWith0BlockNumberOrdered(chainID uint) ([
 
 		zfo10str := ""
 		nonzfo10str := ""
+		nearTicksJSON := ""
 		err := rows.Scan(
 			&pool.Address,
 			&pool.ChainID,
@@ -550,7 +583,7 @@ func (r *v3poolDBRepo) GetPoolsByChainIDWith0BlockNumberOrdered(chainID uint) ([
 			&pool.TickSpacing,
 			&pool.TickLower,
 			&pool.TickUpper,
-			&pool.NearTicksJSON,
+			&nearTicksJSON,
 			&pool.FeeTier,
 			&pool.IsDusty,
 			&pool.BlockNumber,
@@ -560,6 +593,13 @@ func (r *v3poolDBRepo) GetPoolsByChainIDWith0BlockNumberOrdered(chainID uint) ([
 		if err != nil {
 			return nil, err
 		}
+
+		ticks := []models.UniswapV3PoolTick{}
+		err = json.Unmarshal([]byte(nearTicksJSON), &ticks)
+		if err != nil {
+			continue
+		}
+		pool.SetTicks(ticks)
 
 		sqrtPriceX96 := new(big.Int)
 		_, ok := sqrtPriceX96.SetString(sqrtPriceX96Str, 10)
@@ -614,7 +654,7 @@ func (r *v3poolDBRepo) GetNotDustyPoolsByChainID(chainID uint) ([]models.Uniswap
 			models.UNISWAP_V3_POOL_TICK_SPACING,
 			models.UNISWAP_V3_POOL_TICK_LOWER,
 			models.UNISWAP_V3_POOL_TICK_UPPER,
-			models.UNISWAP_V3_POOL_NEAR_TICKS,
+			models.UNISWAP_V3_POOL_TICKS,
 
 			models.UNISWAP_V3_POOL_FEE_TIER,
 			models.UNISWAP_V3_POOL_IS_DUSTY,
@@ -642,6 +682,7 @@ func (r *v3poolDBRepo) GetNotDustyPoolsByChainID(chainID uint) ([]models.Uniswap
 
 		zfo10str := ""
 		nonzfo10str := ""
+		nearTicksJSON := ""
 
 		err := rows.Scan(
 			&pool.Address,
@@ -654,7 +695,7 @@ func (r *v3poolDBRepo) GetNotDustyPoolsByChainID(chainID uint) ([]models.Uniswap
 			&pool.TickSpacing,
 			&pool.TickLower,
 			&pool.TickUpper,
-			&pool.NearTicksJSON,
+			&nearTicksJSON,
 			&pool.FeeTier,
 			&pool.IsDusty,
 			&pool.BlockNumber,
@@ -664,6 +705,13 @@ func (r *v3poolDBRepo) GetNotDustyPoolsByChainID(chainID uint) ([]models.Uniswap
 		if err != nil {
 			return nil, err
 		}
+
+		ticks := []models.UniswapV3PoolTick{}
+		err = json.Unmarshal([]byte(nearTicksJSON), &ticks)
+		if err != nil {
+			continue
+		}
+		pool.SetTicks(ticks)
 
 		sqrtPriceX96 := new(big.Int)
 		_, ok := sqrtPriceX96.SetString(sqrtPriceX96Str, 10)
@@ -697,40 +745,6 @@ func (r *v3poolDBRepo) GetNotDustyPoolsByChainID(chainID uint) ([]models.Uniswap
 	}
 
 	return pools, nil
-}
-
-func (r *v3poolDBRepo) UpdatePoolsLiquiditySqrtPriceTickAndBlockNumber(pools []models.UniswapV3Pool) error {
-	db, err := r.pgDatabase.GetDB()
-	if err != nil {
-		return err
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-
-	for _, pool := range pools {
-		queryMap := map[string]any{
-			models.UNISWAP_V3_POOL_LIQUIDITY:    pool.Liquidity.String(),
-			models.UNISWAP_V3_POOL_SQRTPRICEX96: pool.SqrtPriceX96.String(),
-			models.UNISWAP_V3_POOL_TICK:         pool.Tick,
-			models.UNISWAP_V3_POOL_TICK_SPACING: pool.TickSpacing,
-			models.UNISWAP_V3_POOL_BLOCK_NUMBER: pool.BlockNumber,
-		}
-
-		query := psql.
-			Update(
-				models.UNISWAP_V3_POOL_TABLE,
-			).SetMap(queryMap).
-			Where(sq.Eq{models.UNISWAP_V3_POOL_ADDRESS: pool.Address, models.UNISWAP_V3_POOL_CHAINID: pool.ChainID})
-
-		_, err = query.RunWith(tx).Exec()
-		if err != nil {
-			return err
-		}
-	}
-
-	return tx.Commit()
 }
 
 func (r *v3poolDBRepo) UpdatePoolsIsDusty(pools []models.UniswapV3Pool) error {
@@ -808,7 +822,7 @@ func (r *v3poolDBRepo) UpdatePoolsLowerUpperNearTicks(pools []models.UniswapV3Po
 		queryMap := map[string]any{
 			models.UNISWAP_V3_POOL_TICK_LOWER: pool.TickLower,
 			models.UNISWAP_V3_POOL_TICK_UPPER: pool.TickUpper,
-			models.UNISWAP_V3_POOL_NEAR_TICKS: pool.NearTicksJSON,
+			models.UNISWAP_V3_POOL_TICKS:      pool.NearTicksJSON(),
 		}
 
 		query := psql.
@@ -844,7 +858,7 @@ func (r *v3poolDBRepo) UpdatePool(pool models.UniswapV3Pool) error {
 		models.UNISWAP_V3_POOL_TICK_SPACING: pool.TickSpacing,
 		models.UNISWAP_V3_POOL_TICK_LOWER:   pool.TickLower,
 		models.UNISWAP_V3_POOL_TICK_UPPER:   pool.TickUpper,
-		models.UNISWAP_V3_POOL_NEAR_TICKS:   pool.NearTicksJSON,
+		models.UNISWAP_V3_POOL_TICKS:        pool.NearTicksJSON(),
 
 		models.UNISWAP_V3_POOL_FEE_TIER:     pool.FeeTier,
 		models.UNISWAP_V3_POOL_IS_DUSTY:     pool.IsDusty,
@@ -897,7 +911,7 @@ func (r *v3poolDBRepo) UpdatePoolLiquidityAndBlockNumber(pool models.UniswapV3Po
 	return tx.Commit()
 }
 
-func (r *v3poolDBRepo) UpdatePoolLiquiditySqrtPriceTickAndBlockNumber(pool models.UniswapV3Pool, blockNumber uint64) error {
+func (r *v3poolDBRepo) UpdatePoolsColumns(pools []models.UniswapV3Pool, columns []string) error {
 	db, err := r.pgDatabase.GetDB()
 	if err != nil {
 		return err
@@ -907,11 +921,55 @@ func (r *v3poolDBRepo) UpdatePoolLiquiditySqrtPriceTickAndBlockNumber(pool model
 		return err
 	}
 
-	queryMap := map[string]any{
-		models.UNISWAP_V3_POOL_SQRTPRICEX96: pool.SqrtPriceX96.String(),
-		models.UNISWAP_V3_POOL_LIQUIDITY:    pool.Liquidity.String(),
+	for _, pool := range pools {
+		err = r.UpdatePoolColumnsWithinTx(tx, pool, columns)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *v3poolDBRepo) UpdatePoolColumnsWithinTx(tx *sql.Tx, pool models.UniswapV3Pool, columns []string) error {
+	colMap := make(map[string]any)
+	for _, col := range columns {
+		colMap[col] = new(any)
+	}
+
+	arrayToDelete := make([]string, 0)
+	for _, column := range columns {
+		if _, ok := colMap[column]; ok {
+			continue
+		}
+		arrayToDelete = append(arrayToDelete, column)
+	}
+
+	queryMap := map[string]interface{}{
+		models.UNISWAP_V3_POOL_ADDRESS:        pool.Address,
+		models.UNISWAP_V3_POOL_CHAINID:        pool.ChainID,
+		models.UNISWAP_V3_POOL_TOKEN0_ADDRESS: pool.Token0,
+		models.UNISWAP_V3_POOL_TOKEN1_ADDRESS: pool.Token1,
+		models.UNISWAP_V3_POOL_SQRTPRICEX96:   pool.SqrtPriceX96.String(),
+		models.UNISWAP_V3_POOL_LIQUIDITY:      pool.Liquidity.String(),
+
 		models.UNISWAP_V3_POOL_TICK:         pool.Tick,
+		models.UNISWAP_V3_POOL_TICK_SPACING: pool.TickSpacing,
+		models.UNISWAP_V3_POOL_TICK_LOWER:   pool.TickLower,
+		models.UNISWAP_V3_POOL_TICK_UPPER:   pool.TickUpper,
+		models.UNISWAP_V3_POOL_TICKS:        pool.NearTicksJSON(),
+
+		models.UNISWAP_V3_POOL_FEE_TIER:     pool.FeeTier,
+		models.UNISWAP_V3_POOL_IS_DUSTY:     pool.IsDusty,
 		models.UNISWAP_V3_POOL_BLOCK_NUMBER: pool.BlockNumber,
+
+		models.UNISWAP_V3_ZFO_10USD_RATE:     pool.Zfo10USDRate.Text('f', -1),
+		models.UNISWAP_V3_NON_ZFO_10USD_RATE: pool.NonZfo10USDRate.Text('f', -1),
+	}
+
+	for _, colToDelete := range arrayToDelete {
+		delete(queryMap, colToDelete)
+
 	}
 
 	query := psql.
@@ -920,12 +978,12 @@ func (r *v3poolDBRepo) UpdatePoolLiquiditySqrtPriceTickAndBlockNumber(pool model
 		).SetMap(queryMap).
 		Where(sq.Eq{models.UNISWAP_V3_POOL_ADDRESS: pool.Address, models.UNISWAP_V3_POOL_CHAINID: pool.ChainID})
 
-	_, err = query.RunWith(tx).Exec()
+	_, err := query.RunWith(tx).Exec()
 	if err != nil {
 		return err
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 func (r *v3poolDBRepo) UpdatePoolColumns(pool models.UniswapV3Pool, columns []string) error {
@@ -963,7 +1021,7 @@ func (r *v3poolDBRepo) UpdatePoolColumns(pool models.UniswapV3Pool, columns []st
 		models.UNISWAP_V3_POOL_TICK_SPACING: pool.TickSpacing,
 		models.UNISWAP_V3_POOL_TICK_LOWER:   pool.TickLower,
 		models.UNISWAP_V3_POOL_TICK_UPPER:   pool.TickUpper,
-		models.UNISWAP_V3_POOL_NEAR_TICKS:   pool.NearTicksJSON,
+		models.UNISWAP_V3_POOL_TICKS:        pool.NearTicksJSON(),
 
 		models.UNISWAP_V3_POOL_FEE_TIER:     pool.FeeTier,
 		models.UNISWAP_V3_POOL_IS_DUSTY:     pool.IsDusty,

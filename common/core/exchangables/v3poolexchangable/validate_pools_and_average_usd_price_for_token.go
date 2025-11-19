@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/alexkalak/go_market_analyze/common/helpers"
 	"github.com/alexkalak/go_market_analyze/common/models"
@@ -11,33 +12,36 @@ import (
 
 var bTen = big.NewInt(10)
 
-func getNeededAmountInUSD(USDPrice *big.Float, amountUSD *big.Int, decimals int64) *big.Int {
-	dtAmountRealForOneUSD := new(big.Float).Quo(big.NewFloat(1), USDPrice)
-	dtAmountRealNeeded := new(big.Float).Mul(dtAmountRealForOneUSD, new(big.Float).SetInt(amountUSD))
-
-	dtAmount := new(big.Float).Mul(new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(decimals), nil)), dtAmountRealNeeded)
-	dtAmountInt, _ := dtAmount.Int(nil)
-
-	return dtAmountInt
-
-}
-
 func ValidateV3PoolsAndGetAverageUSDPriceForTokens(
 	chainID uint,
 	allTokens []*models.Token,
 	pools []models.UniswapV3Pool,
 	stableCoins []*models.Token,
 ) ([]*models.Token, map[string]*models.UniswapV3Pool, error) {
+	//Map stable coins (address) -> token
 	stableCoinsMap := map[string]*models.Token{}
 	for _, stableCoin := range stableCoins {
 		stableCoinsMap[stableCoin.Address] = stableCoin
 	}
 
+	//Map tokens (address) -> token
 	tokenDataMap := map[string]*models.Token{}
 	for _, token := range allTokens {
+		fileteredImpacts := []*models.TokenPriceImpact{}
+		for _, impact := range token.GetImpacts() {
+			//Remove v3 pool impacts
+			if strings.Contains(impact.ExchangeIdentifier, "v3pool") {
+				continue
+			}
+
+			fileteredImpacts = append(fileteredImpacts, impact)
+		}
+		token.SetImpacts(fileteredImpacts)
+
 		if token.ChainID != chainID {
 			continue
 		}
+
 		tokenDataMap[token.Address] = token
 	}
 
@@ -89,6 +93,7 @@ func ValidateV3PoolsAndGetAverageUSDPriceForTokens(
 
 		err := UpdateRateFor10USD(pool, token0, token1)
 		if err != nil {
+			fmt.Println(pool.Address, err)
 			delete(notDustyPools, key)
 			continue
 		}
@@ -105,21 +110,18 @@ func ValidateV3PoolsAndGetAverageUSDPriceForTokens(
 func UpdateRateFor10USD(pool *models.UniswapV3Pool, token0 *models.Token, token1 *models.Token) error {
 	if token0.USDPrice.Cmp(big.NewFloat(0)) == 0 ||
 		token1.USDPrice.Cmp(big.NewFloat(0)) == 0 {
-		// fmt.Println("invalid defi price", token0.DefiUSDPrice, token1.DefiUSDPrice)
-		// fmt.Println(helpers.GetJSONString(token0))
-		// fmt.Println(helpers.GetJSONString(token1))
-		return errors.New("invalid defi price")
+		return errors.New("invalid usd price")
 	}
 
 	exchangablePool, err := NewV3ExchangablePool(pool, token0, token1)
 	if err != nil {
-		return errors.New("invalid defi price")
+		return errors.New("invalid usd price")
 	}
 
 	usdAmount := big.NewInt(10)
 
-	amount0Init := getNeededAmountInUSD(token0.USDPrice, usdAmount, int64(token0.Decimals))
-	amount1Init := getNeededAmountInUSD(token1.USDPrice, usdAmount, int64(token1.Decimals))
+	amount0Init := token0.FromUSD(usdAmount)
+	amount1Init := token1.FromUSD(usdAmount)
 
 	amount1Out, err := exchangablePool.ImitateSwap(amount0Init, true)
 	if err != nil {
@@ -138,6 +140,12 @@ func UpdateRateFor10USD(pool *models.UniswapV3Pool, token0 *models.Token, token1
 	if err != nil {
 		return err
 	}
+	if pool.Address == "0xc07044d4b947e7c5701f1922db048c6b47799b84" {
+		fmt.Println("amount0Init: ", amount0Init)
+		fmt.Println("reverted0: ", reverted0)
+		fmt.Println("amount1Init: ", amount1Init)
+		fmt.Println("reverted1: ", reverted1)
+	}
 
 	if reverted0.Cmp(big.NewInt(0)) == 0 ||
 		reverted1.Cmp(big.NewInt(0)) == 0 {
@@ -146,11 +154,11 @@ func UpdateRateFor10USD(pool *models.UniswapV3Pool, token0 *models.Token, token1
 
 	percentZfo := new(big.Float).Quo(new(big.Float).SetInt(reverted0), new(big.Float).SetInt(amount0Init))
 	if percentZfo.Cmp(big.NewFloat(0.97)) < 0 {
-		return err
+		return errors.New("too much token0 -> token1 (zfo) slippage")
 	}
 	percentNonZfo := new(big.Float).Quo(new(big.Float).SetInt(reverted1), new(big.Float).SetInt(amount1Init))
 	if percentNonZfo.Cmp(big.NewFloat(0.97)) < 0 {
-		return err
+		return errors.New("too much token1 -> token0 (non zfo) slippage")
 	}
 
 	pool.Zfo10USDRate = new(big.Float).Quo(token1.GetRealAmount(amount1Out), token0.GetRealAmount(amount0Init))
@@ -164,6 +172,7 @@ func divideSqrtPriceX96(sqrtPriceX96 *big.Int) *big.Float {
 	sqrtPrice.Quo(new(big.Float).SetInt(sqrtPriceX96), Q96Float)
 	return sqrtPrice
 }
+
 func GetImpactForPool(pool *models.UniswapV3Pool, dtDecimals int64, dtUSDPrice *big.Float) *big.Int {
 	div := new(big.Int).Div(pool.Liquidity, big.NewInt(dtDecimals))
 	res, _ := new(big.Float).Mul(dtUSDPrice, new(big.Float).SetInt(div)).Int(nil)
@@ -229,6 +238,11 @@ func checkPairForDefinedTokens(
 		return nil
 	}
 
+	if !pool.TicksValid() {
+		checkedPools[pool.Address] = new(any)
+		return nil
+	}
+
 	dt := &models.Token{}
 	dt0, hasDefinedToken0 := definedTokensMap[pool.Token0]
 	dt1, hasDefinedToken1 := definedTokensMap[pool.Token1]
@@ -272,7 +286,6 @@ func checkPairForDefinedTokens(
 	isDTZero := pool.Token0 == dt.Address
 
 	// Mark that checked this pair for liquidity
-
 	atData, ok := tokenDataMap[atAddress]
 	if !ok {
 		fmt.Println("Another token not found ============================================", atAddress, helpers.GetJSONString(pool))
@@ -300,7 +313,7 @@ func checkPairForDefinedTokens(
 	pool.NonZfo10USDRate = big.NewFloat(0)
 
 	//Changing dt for another token
-	dtAmountFor10USD := getNeededAmountInUSD(dt.USDPrice, big.NewInt(10), int64(dt.Decimals))
+	dtAmountFor10USD := dt.FromUSD(big.NewInt(10))
 
 	atOutFor10USD, err := exchangable.ImitateSwap(dtAmountFor10USD, isDTZero)
 	if err != nil {

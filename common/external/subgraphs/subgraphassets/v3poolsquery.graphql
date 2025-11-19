@@ -8,5 +8,9 @@ query GetPools($first: Int!, $skip: Int!) {
     token1 {
       id
     }
+    ticks(where:{liquidityNet_not: 0}, first: 1000){
+      tickIdx
+      liquidityNet
+    }
   }
 }
