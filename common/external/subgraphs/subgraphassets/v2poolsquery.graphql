@@ -1,0 +1,16 @@
+query ($first: Int!, $skip: Int!) {
+  pools(first: $first, skip:$skip){
+    id
+    feeTier
+    token0 {
+      id
+    }
+    token1 {
+      id
+    }
+    ticks(where:{liquidityNet_not: 0}, first: 1000){
+      tickIdx
+      liquidityNet
+    }
+  }
+}

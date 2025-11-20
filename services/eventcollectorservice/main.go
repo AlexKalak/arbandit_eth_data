@@ -7,6 +7,7 @@ import (
 	"github.com/alexkalak/go_market_analyze/common/external/subgraphs"
 	"github.com/alexkalak/go_market_analyze/common/helpers/envhelper"
 	"github.com/alexkalak/go_market_analyze/common/periphery/pgdatabase"
+	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v2pairsrepo"
 	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v3poolsrepo"
 	"github.com/alexkalak/go_market_analyze/common/repo/tokenrepo"
 	"github.com/alexkalak/go_market_analyze/services/eventcollectorservice/src/eventcollectorservice"
@@ -35,6 +36,12 @@ func main() {
 	}
 
 	v3PoolDBRepo, err := v3poolsrepo.NewDBRepo(v3poolsrepo.V3PoolDBRepoDependencies{
+		Database: pgDB,
+	})
+	if err != nil {
+		panic(err)
+	}
+	v2PairDBRepo, err := v2pairsrepo.NewDBRepo(v2pairsrepo.V2PairDBRepoDependencies{
 		Database: pgDB,
 	})
 	if err != nil {
@@ -79,6 +86,7 @@ func main() {
 		SubgraphClient: subgraphClient,
 		TokenRepo:      tokenRepo,
 		V3PoolsDBRepo:  v3PoolDBRepo,
+		V2PairDBRepo:   v2PairDBRepo,
 		RpcClient:      rpcClient,
 	}
 	merger, err := merger.NewMerger(mergerDependencies)

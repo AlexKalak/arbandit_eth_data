@@ -36,7 +36,7 @@ type arbitrageService struct {
 type ArbitrageServiceDependencies struct {
 	TokenRepo           tokenrepo.TokenRepo
 	V3PoolCacheRepo     v3poolsrepo.V3PoolCacheRepo
-	V2PairRepo          v2pairsrepo.V2PairRepo
+	V2PairRepo          v2pairsrepo.V2PairDBRepo
 	V3PoolDBRepo        v3poolsrepo.V3PoolDBRepo
 	V3TransactionDBRepo v3transactionrepo.V3TransactionDBRepo
 }

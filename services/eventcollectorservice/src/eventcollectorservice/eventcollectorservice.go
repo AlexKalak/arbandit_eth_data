@@ -85,7 +85,7 @@ const (
 )
 
 type headAndLogsSync struct {
-	mu sync.Mutex
+	mu *sync.Mutex
 	//blocknumber -> blocktimestamp
 	blockTimestamps map[uint64]uint64
 	//blocknumber -> logs
@@ -112,7 +112,7 @@ type rpcEventsCollector struct {
 
 	v3PoolRepo v3poolsrepo.V3PoolDBRepo
 
-	headsAndLogsData headAndLogsSync
+	headsAndLogsData *headAndLogsSync
 	merger           merger.Merger
 }
 
@@ -196,13 +196,10 @@ func New(config RPCEventsCollectorServiceConfig, dependencies RPCEventCollectorS
 			_PANCAKESWAP_V3_ABI_NAME: pancakeswapABI,
 			_SUSHISWAP_V3_ABI_NAME:   sushiswapABI,
 		},
-		lastLogTime: time.Time{},
-		ticker:      time.NewTicker(quietDelay),
-		headsAndLogsData: headAndLogsSync{
-			blockTimestamps: map[uint64]uint64{},
-			pendingLogs:     map[uint64][]types.Log{},
-		},
-		merger: dependencies.Merger,
+		lastLogTime:      time.Time{},
+		ticker:           time.NewTicker(quietDelay),
+		headsAndLogsData: nil,
+		merger:           dependencies.Merger,
 	}, nil
 }
 
@@ -249,6 +246,11 @@ func (s *rpcEventsCollector) configure(ctx context.Context, addresses []common.A
 	for _, address := range addresses {
 		s.addresses[address] = new(any)
 	}
+	s.headsAndLogsData = &headAndLogsSync{
+		blockTimestamps: map[uint64]uint64{},
+		pendingLogs:     map[uint64][]types.Log{},
+	}
+
 	fmt.Println("Configuration done.")
 	return nil
 }

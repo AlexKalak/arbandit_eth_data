@@ -33,6 +33,7 @@ type SubgraphClient interface {
 	GetTokensForV3Contract(ctx context.Context, chainID uint) ([]models.Token, error)
 	GetV3Pools(ctx context.Context, chainID uint) ([]models.UniswapV3Pool, error)
 	GetTicksForV3Pools(ctx context.Context, chainID uint, poolsMap map[string]*models.UniswapV3Pool) (map[string][]models.UniswapV3PoolTick, error)
+	GetV2Pairs(ctx context.Context, chainID uint) ([]models.UniswapV2Pair, error)
 }
 
 type SubgraphClientConfig struct {
@@ -340,6 +341,94 @@ func (s *subgraphClient) GetTicksForV3Pools(ctx context.Context, chainID uint, p
 	return poolTicksMap, nil
 }
 
+const pairsChunkSize = 1000
+
+func (s *subgraphClient) GetV2Pairs(ctx context.Context, chainID uint) ([]models.UniswapV2Pair, error) {
+	urls, ok := s.subgraphUrlsMap[chainID][uniV2Fork]
+	if !ok {
+		return nil, subgrapherrors.ErrExchangeTypeNotFound
+	}
+	pairResponsesArray := []PairResponse{}
+
+	parallelQueries := 20
+	wg := sync.WaitGroup{}
+
+	for exchangeName, url := range urls {
+		currentChunk := 0
+		feeTier := 0
+		switch exchangeName {
+		case "pancakeswap":
+			feeTier = 2500
+		case "uniswap":
+			feeTier = 3000
+		case "sushiswap":
+			feeTier = 3000
+		}
+		fmt.Println("exchangeName: ", exchangeName)
+		fmt.Println(url)
+		for {
+			pairsToPush := make([]PairResponse, parallelQueries*pairsChunkSize)
+			var totalNewValue int32 = 0
+
+			for i := range parallelQueries {
+				chunk := currentChunk
+				queryNumber := i
+				wg.Go(func() {
+					a := 0
+					pairsArray, err := s.queryV2Pairs(ctx, url, chunk*pairsChunkSize)
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+					for i, pair := range pairsArray {
+						if pair.ID != "" && pair.Token0.ID != "" && pair.Token1.ID != "" {
+							a++
+						}
+						pairsToPush[(poolsChunkSize*queryNumber)+i] = pair
+						pairsToPush[(poolsChunkSize*queryNumber)+i].ExchangeName = string(exchangeName)
+						pairsToPush[(poolsChunkSize*queryNumber)+i].FeeTier = feeTier
+					}
+
+					fmt.Println(a)
+					atomic.AddInt32(&totalNewValue, int32(len(pairsArray)))
+				})
+				currentChunk++
+			}
+			wg.Wait()
+			fmt.Println(exchangeName, len(pairsToPush))
+			if totalNewValue == 0 {
+				break
+			}
+
+			pairResponsesArray = append(pairResponsesArray, pairsToPush...)
+
+		}
+	}
+
+	fmt.Println("Total pair responses len: ", len(pairResponsesArray))
+
+	result := make([]models.UniswapV2Pair, 0, len(pairResponsesArray))
+
+	for _, pairResp := range pairResponsesArray {
+		if pairResp.ID != "" && pairResp.Token0.ID != "" && pairResp.Token1.ID != "" {
+			newPool := models.UniswapV2Pair{
+				ExchangeName: pairResp.ExchangeName,
+				Address:      pairResp.ID,
+				ChainID:      chainID,
+				Token0:       pairResp.Token0.ID,
+				Token1:       pairResp.Token1.ID,
+				FeeTier:      pairResp.FeeTier,
+			}
+
+			result = append(result, newPool)
+		}
+	}
+
+	fmt.Println("result: ", len(result))
+
+	return result, nil
+}
+
 //go:embed subgraphassets/v3poolsquery.graphql
 var poolsQuery string
 
@@ -388,4 +477,29 @@ func (s *subgraphClient) queryV3Ticks(ctx context.Context, graphURL string, skip
 	}
 
 	return respData.Ticks, nil
+}
+
+//go:embed subgraphassets/v2pairsquery.graphql
+var pairsQuery string
+
+func (s *subgraphClient) queryV2Pairs(ctx context.Context, graphURL string, skip int) ([]PairResponse, error) {
+	client := graphql.NewClient(graphURL)
+	if client == nil {
+		return nil, errors.New("unable to create graphql client")
+	}
+	req := graphql.NewRequest(pairsQuery)
+	req.Header.Add("Authorization", "Bearer "+s.apiKey)
+
+	req.Var("first", pairsChunkSize)
+	req.Var("skip", skip)
+
+	respData := struct {
+		Pairs []PairResponse `json:"pairs"`
+	}{}
+
+	if err := client.Run(ctx, req, &respData); err != nil {
+		return nil, err
+	}
+
+	return respData.Pairs, nil
 }

@@ -25,3 +25,12 @@ type PoolResponse struct {
 
 	ExchangeName string
 }
+
+type PairResponse struct {
+	ID     string            `json:"id"`
+	Token0 PoolResponseToken `json:"token0"`
+	Token1 PoolResponseToken `json:"token1"`
+
+	ExchangeName string
+	FeeTier      int
+}

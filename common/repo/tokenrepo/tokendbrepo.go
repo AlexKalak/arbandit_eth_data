@@ -26,6 +26,7 @@ type TokenRepo interface {
 	UpdateTokenPriceImpactAndTokenPrice(token *models.Token, impact *models.TokenPriceImpact) error
 
 	DeleteV3PoolImpacts(chainID uint) error
+	DeleteV2PairImpacts(chainID uint) error
 }
 
 type TokenDBRepoDependencies struct {
@@ -528,6 +529,26 @@ func (r *tokenRepo) DeleteV3PoolImpacts(chainID uint) error {
 	query := psql.
 		Delete(models.TOKEN_PRICE_IMPACT_TABLE).
 		Where(sq.Like{models.TOKEN_PRICE_IMPACT_EXCHANGE_IDENTIFIER: "%v3pool%"})
+
+	_, err = query.RunWith(db).Exec()
+	if err != nil {
+		fmt.Println("Error deleting v3pool impacts: ", err)
+		return err
+	}
+
+	return nil
+
+}
+
+func (r *tokenRepo) DeleteV2PairImpacts(chainID uint) error {
+	db, err := r.pgDatabase.GetDB()
+	if err != nil {
+		return err
+	}
+
+	query := psql.
+		Delete(models.TOKEN_PRICE_IMPACT_TABLE).
+		Where(sq.Like{models.TOKEN_PRICE_IMPACT_EXCHANGE_IDENTIFIER: "%v2pair%"})
 
 	_, err = query.RunWith(db).Exec()
 	if err != nil {

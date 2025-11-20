@@ -145,3 +145,7 @@ type TokenPriceImpact struct {
 func GetExchangeIdentifierForV3Pool(chainID uint, poolAddress string) string {
 	return fmt.Sprintf("v3pool_%d_%s", chainID, poolAddress)
 }
+
+func GetExchangeIdentifierForV2Pair(chainID uint, pairAddress string) string {
+	return fmt.Sprintf("v2pair_%d_%s", chainID, pairAddress)
+}

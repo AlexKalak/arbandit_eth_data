@@ -181,8 +181,8 @@ func GetImpactForPool(pool *models.UniswapV3Pool, dtDecimals int64, dtUSDPrice *
 
 func GetRateForPool(pool *models.UniswapV3Pool, tokenAddress string, dtDecimals int, tokenDecimals int) (*big.Float, error) {
 	// always token1 -> token0
+	//Rate initally is sqrt
 	rate := divideSqrtPriceX96(pool.SqrtPriceX96)
-
 	rate.Mul(rate, rate)
 
 	if pool.Token0 == tokenAddress {

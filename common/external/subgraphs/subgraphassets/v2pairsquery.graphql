@@ -1,0 +1,11 @@
+query ($first: Int!, $skip: Int!) {
+  pairs(first: $first, skip:$skip){
+    id
+    token0 {
+      id
+    }
+    token1 {
+      id
+    }
+  }
+}

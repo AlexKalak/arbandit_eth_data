@@ -10,6 +10,7 @@ import (
 	"github.com/alexkalak/go_market_analyze/common/external/subgraphs"
 	"github.com/alexkalak/go_market_analyze/common/models"
 	"github.com/alexkalak/go_market_analyze/common/periphery/pgdatabase"
+	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v2pairsrepo"
 	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v3poolsrepo"
 	"github.com/alexkalak/go_market_analyze/common/repo/tokenrepo"
 )
@@ -43,6 +44,7 @@ type MergerDependencies struct {
 	Database       *pgdatabase.PgDatabase
 	SubgraphClient subgraphs.SubgraphClient
 	V3PoolsDBRepo  v3poolsrepo.V3PoolDBRepo
+	V2PairDBRepo   v2pairsrepo.V2PairDBRepo
 	TokenRepo      tokenrepo.TokenRepo
 	RpcClient      rpcclient.RpcClient
 }
@@ -57,6 +59,9 @@ func (d *MergerDependencies) validate() error {
 	if d.V3PoolsDBRepo == nil {
 		return errors.New("merger dependencies v3pools db repo cannot be nil")
 	}
+	if d.V2PairDBRepo == nil {
+		return errors.New("merger dependencies v2 pair db repo cannot be nil")
+	}
 	if d.TokenRepo == nil {
 		return errors.New("merger dependencies token db repo cannot be nil")
 	}
@@ -69,12 +74,17 @@ func (d *MergerDependencies) validate() error {
 
 type Merger interface {
 	MergeTokens(chainID uint) error
+
 	MergePools(chainID uint) error
 	MergePoolsData(ctx context.Context, chainID uint, blockNumber *big.Int) error
 	MergePoolsTicks(ctx context.Context, chainID uint) error
 	ValidateV3PoolsAndComputeAverageUSDPrice(chainID uint) error
 	SortPoolTicks() error
 	ImitateSwapForPool(identificator models.V3PoolIdentificator, amountInUSD *big.Int) error
+
+	MergePairs(chainID uint) error
+	MergePairsData(ctx context.Context, chainID uint, blockNumber *big.Int) error
+	ValidateV2PairsAndComputeAverageUSDPrice(chainID uint) error
 }
 
 type merger struct {
@@ -82,6 +92,7 @@ type merger struct {
 	subgraphClient subgraphs.SubgraphClient
 	tokenRepo      tokenrepo.TokenRepo
 	v3PoolsDBRepo  v3poolsrepo.V3PoolDBRepo
+	v2PairDBRepo   v2pairsrepo.V2PairDBRepo
 	rpcClient      rpcclient.RpcClient
 }
 
@@ -97,6 +108,7 @@ func NewMerger(dependencies MergerDependencies) (Merger, error) {
 		database:       dependencies.Database,
 		subgraphClient: dependencies.SubgraphClient,
 		v3PoolsDBRepo:  dependencies.V3PoolsDBRepo,
+		v2PairDBRepo:   dependencies.V2PairDBRepo,
 		tokenRepo:      dependencies.TokenRepo,
 		rpcClient:      dependencies.RpcClient,
 	}, nil

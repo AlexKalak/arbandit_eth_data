@@ -19,12 +19,16 @@ import (
 //go:embed rpcclientassets/v3pooldataABI.json
 var V3PoolDataABIStr string
 
+//go:embed rpcclientassets/v2pairdataABI.json
+var V2PairDataABIStr string
+
 //go:embed rpcclientassets/multicallABI.json
 var multicallABIStr string
 
 type RpcClient interface {
 	GetPoolsData(ctx context.Context, pools []models.UniswapV3Pool, chainID uint, blockNumber *big.Int) ([]models.UniswapV3Pool, error)
 	GetPoolsTicks(ctx context.Context, pools []models.UniswapV3Pool, chainID uint, blockNUmber *big.Int) ([]models.UniswapV3Pool, error)
+	GetPairsData(ctx context.Context, pairs []models.UniswapV2Pair, chainID uint, blockNumber *big.Int) ([]models.UniswapV2Pair, error)
 }
 
 type RpcClientConfig struct {
@@ -39,6 +43,7 @@ type rpcClient struct {
 	multicallAddresses map[uint]common.Address
 
 	v3PoolDataABI abi.ABI
+	v2PairDataABI abi.ABI
 	multicallABI  abi.ABI
 }
 
@@ -49,6 +54,10 @@ func NewRpcClient(config RpcClientConfig) (RpcClient, error) {
 	}
 
 	v3PoolDataABI, err := abi.JSON(strings.NewReader(V3PoolDataABIStr))
+	if err != nil {
+		return nil, err
+	}
+	v2PairDataABI, err := abi.JSON(strings.NewReader(V2PairDataABIStr))
 	if err != nil {
 		return nil, err
 	}
@@ -66,6 +75,7 @@ func NewRpcClient(config RpcClientConfig) (RpcClient, error) {
 		},
 		config:        config,
 		v3PoolDataABI: v3PoolDataABI,
+		v2PairDataABI: v2PairDataABI,
 		multicallABI:  multicallABI,
 	}, nil
 }
@@ -246,4 +256,139 @@ func (c *rpcClient) handleGetPoolDataReturnBytes(pools []models.UniswapV3Pool, r
 	}
 
 	return updatedPools, nil
+}
+
+func (c *rpcClient) GetPairsData(ctx context.Context, pairs []models.UniswapV2Pair, chainID uint, blockNumber *big.Int) ([]models.UniswapV2Pair, error) {
+	client, ok := c.clients[chainID]
+	if !ok {
+		return nil, fmt.Errorf("client for chain %d not found", chainID)
+	}
+
+	multicallAddress, ok := c.multicallAddresses[chainID]
+	if !ok {
+		return nil, fmt.Errorf("multicall address for chain %d not found", chainID)
+	}
+
+	chunkSize := 10
+
+	res := struct {
+		mu    sync.Mutex
+		pairs []models.UniswapV2Pair
+	}{}
+
+	res.pairs = make([]models.UniswapV2Pair, 0, len(pairs))
+
+	offset := -chunkSize
+
+	wg := sync.WaitGroup{}
+upperLoop:
+	for {
+		for range 7 {
+			offset += chunkSize
+
+			if offset == len(pairs) {
+				break upperLoop
+			}
+
+			if offset > len(pairs) {
+				offset = len(pairs) - chunkSize
+			}
+
+			currentOffset := offset
+			repeatedTimes := 0
+			f := func() {}
+			f = func() {
+				fmt.Println("chunk: ", currentOffset/chunkSize)
+
+				slice := pairs[currentOffset:]
+				if currentOffset+chunkSize < len(pairs) {
+					slice = pairs[currentOffset : currentOffset+chunkSize]
+				}
+
+				calls := []call{}
+
+				for _, pair := range slice {
+					pairAddress := common.HexToAddress(pair.Address)
+					data, err := c.v2PairDataABI.Pack("getReserves")
+					if err != nil {
+						return
+					}
+
+					calls = append(calls, call{pairAddress, data})
+				}
+
+				returnBytes, err := c.Multicall(ctx, calls, blockNumber, client, multicallAddress)
+				if err != nil {
+					fmt.Println("Error calling rpc multicall", err)
+					if repeatedTimes < 2 {
+						repeatedTimes++
+						time.Sleep(1 * time.Second)
+						f()
+					}
+
+					time.Sleep(1 * time.Second)
+					return
+				}
+
+				updatedPools, err := c.handleGetPairDataReturnBytes(slice, returnBytes)
+				if err != nil {
+					return
+				}
+				res.mu.Lock()
+				res.pairs = append(res.pairs, updatedPools...)
+				res.mu.Unlock()
+			}
+
+			wg.Go(f)
+
+		}
+		wg.Wait()
+	}
+	wg.Wait()
+
+	for i := range res.pairs {
+		res.pairs[i].BlockNumber = int(blockNumber.Int64())
+	}
+
+	fmt.Println("Len: ", len(res.pairs))
+
+	return res.pairs, nil
+}
+
+func (c *rpcClient) handleGetPairDataReturnBytes(pairs []models.UniswapV2Pair, returnBytes [][]byte) ([]models.UniswapV2Pair, error) {
+	//for case if pairData will contain more than one call
+	pairPackLen := 1
+
+	if len(pairs)*pairPackLen != len(returnBytes) {
+		return nil, errors.New("multicall data len is corrupted")
+	}
+
+	updatedPairs := make([]models.UniswapV2Pair, 0, len(returnBytes)/pairPackLen)
+	for i := pairPackLen; i <= len(returnBytes); i += pairPackLen {
+		pairIndex := (i - pairPackLen) / pairPackLen
+
+		getReservesData := returnBytes[i-pairPackLen]
+		reservesOut, err := c.v2PairDataABI.Unpack("getReserves", getReservesData)
+		if err != nil {
+			fmt.Println("Error unpacking getReserves", err)
+			continue
+		}
+
+		amount0, ok := reservesOut[0].(*big.Int)
+		if !ok {
+			return nil, errors.New("error convert amount0")
+		}
+		amount1, ok := reservesOut[1].(*big.Int)
+		if !ok {
+			return nil, errors.New("error convert amount1")
+		}
+
+		pair := pairs[pairIndex]
+		pair.Amount0 = amount0
+		pair.Amount1 = amount1
+
+		updatedPairs = append(updatedPairs, pair)
+	}
+
+	return updatedPairs, nil
 }

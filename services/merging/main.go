@@ -9,6 +9,7 @@ import (
 	"github.com/alexkalak/go_market_analyze/common/helpers/envhelper"
 	"github.com/alexkalak/go_market_analyze/common/models"
 	"github.com/alexkalak/go_market_analyze/common/periphery/pgdatabase"
+	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v2pairsrepo"
 	"github.com/alexkalak/go_market_analyze/common/repo/exchangerepo/v3poolsrepo"
 	"github.com/alexkalak/go_market_analyze/common/repo/tokenrepo"
 	"github.com/alexkalak/go_market_analyze/services/merging/src/merger"
@@ -46,7 +47,13 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	v3PoolsRepo, err := v3poolsrepo.NewDBRepo(v3poolsrepo.V3PoolDBRepoDependencies{
+	v3PoolDBRepo, err := v3poolsrepo.NewDBRepo(v3poolsrepo.V3PoolDBRepoDependencies{
+		Database: pgDB,
+	})
+	if err != nil {
+		panic(err)
+	}
+	v2PairDBRepo, err := v2pairsrepo.NewDBRepo(v2pairsrepo.V2PairDBRepoDependencies{
 		Database: pgDB,
 	})
 	if err != nil {
@@ -65,7 +72,8 @@ func main() {
 		Database:       pgDB,
 		SubgraphClient: subgraphClient,
 		TokenRepo:      tokenRepo,
-		V3PoolsDBRepo:  v3PoolsRepo,
+		V3PoolsDBRepo:  v3PoolDBRepo,
+		V2PairDBRepo:   v2PairDBRepo,
 		RpcClient:      rpcClient,
 	}
 
@@ -78,10 +86,13 @@ func main() {
 	// mergePoolsTicks(merger)
 	// mergePoolsData(merger)
 
-	validatePools(merger)
+	// validatePools(merger)
 
 	// imitatePoolSwap(merger)
 
+	// mergePairs(merger)
+	// mergePairsData(merger)
+	validatePairs(merger)
 }
 
 func mergePools(merger merger.Merger) {
@@ -92,6 +103,7 @@ func mergePools(merger merger.Merger) {
 		panic(err)
 	}
 }
+
 func mergePoolsTicks(merger merger.Merger) {
 	var chainID uint = 1
 
@@ -100,6 +112,7 @@ func mergePoolsTicks(merger merger.Merger) {
 		panic(err)
 	}
 }
+
 func mergePoolsData(merger merger.Merger) {
 	var chainID uint = 1
 	blockNumber := big.NewInt(int64(23821196))
@@ -109,6 +122,7 @@ func mergePoolsData(merger merger.Merger) {
 		panic(err)
 	}
 }
+
 func validatePools(merger merger.Merger) {
 	var chainID uint = 1
 
@@ -127,6 +141,35 @@ func imitatePoolSwap(merger merger.Merger) {
 		ChainID: chainID,
 	}, big.NewInt(10))
 
+	if err != nil {
+		panic(err)
+	}
+}
+
+func mergePairs(merger merger.Merger) {
+	var chainID uint = 1
+
+	err := merger.MergePairs(chainID)
+	if err != nil {
+		panic(err)
+	}
+
+}
+
+func mergePairsData(merger merger.Merger) {
+	var chainID uint = 1
+	blockNumber := big.NewInt(int64(23821196))
+
+	err := merger.MergePairsData(context.Background(), chainID, blockNumber)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func validatePairs(merger merger.Merger) {
+	var chainID uint = 1
+
+	err := merger.ValidateV2PairsAndComputeAverageUSDPrice(chainID)
 	if err != nil {
 		panic(err)
 	}

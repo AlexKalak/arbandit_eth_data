@@ -1,7 +1,8 @@
 {
   "1": {
     "uni_v2_fork": {
-      "uniswap": "https://gateway.thegraph.com/api/subgraphs/id/EYCKATKGBKLWvSfwvBjzfCBmGwYNdVkduYXVivCsLRFu"
+      "uniswap": "https://gateway.thegraph.com/api/subgraphs/id/EYCKATKGBKLWvSfwvBjzfCBmGwYNdVkduYXVivCsLRFu",
+      "sushiswap": "https://gateway.thegraph.com/api/subgraphs/id/GyZ9MgVQkTWuXGMSd3LXESvpevE8S8aD3uktJh7kbVmc"
     },
     "uni_v3_fork": {
       "pancakeswap": "https://gateway.thegraph.com/api/subgraphs/id/CJYGNhb7RvnhfBDjqpRnD3oxgyhibzc7fkAMa38YV3oS",

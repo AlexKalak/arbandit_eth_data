@@ -158,7 +158,10 @@ func (s *rpcEventsCollector) ListenNewLogs(ctx context.Context, sub ethereum.Sub
 
 			blockNum := head.Number.Uint64()
 
+			fmt.Println("Locking in header channel...")
 			s.headsAndLogsData.mu.Lock()
+			fmt.Println("Locked in header channel.")
+
 			s.headsAndLogsData.blockTimestamps[blockNum] = head.Time
 			fmt.Println("blockNumber", blockNum, "timestamp", head.Time)
 
@@ -170,7 +173,9 @@ func (s *rpcEventsCollector) ListenNewLogs(ctx context.Context, sub ethereum.Sub
 				delete(s.headsAndLogsData.pendingLogs, blockNum)
 			}
 
+			fmt.Println("Unlocking in header channel...")
 			s.headsAndLogsData.mu.Unlock()
+			fmt.Println("Unlocked in header channel.")
 
 		case lg := <-logsCh:
 			// process log (dedupe inside)
@@ -179,25 +184,37 @@ func (s *rpcEventsCollector) ListenNewLogs(ctx context.Context, sub ethereum.Sub
 				continue
 			}
 
+			fmt.Println("Locking in logs channel...")
 			s.headsAndLogsData.mu.Lock()
+			fmt.Println("Locked in logs channel.")
+
 			ts, ok := s.headsAndLogsData.blockTimestamps[lg.BlockNumber]
 			if ok {
+				fmt.Println("Unlocking in logs channel...")
 				s.headsAndLogsData.mu.Unlock()
+				fmt.Println("Unlocked in logs channel.")
 				s.processNewLog(lg, ts)
 			} else {
 				fmt.Println("Waiting for header...")
 				s.headsAndLogsData.pendingLogs[lg.BlockNumber] = append(s.headsAndLogsData.pendingLogs[lg.BlockNumber], lg)
+				fmt.Println("Unlocking in logs channel...")
 				s.headsAndLogsData.mu.Unlock()
+				fmt.Println("Unlocked in logs channel.")
 			}
 
 			logCount++
 
 		case <-s.ticker.C:
+			fmt.Println("Locking in blockOverTicker channel...")
 			s.headsAndLogsData.mu.Lock()
+			fmt.Println("Locked in blockOverTicker channel.")
 			if len(s.headsAndLogsData.pendingLogs) > 0 {
+				s.headsAndLogsData.mu.Unlock()
 				continue
 			}
+			fmt.Println("Unlocking in blockOverTicker channel...")
 			s.headsAndLogsData.mu.Unlock()
+			fmt.Println("Unlocked in blockOverTicker channel.")
 
 			if !s.lastLogTime.IsZero() && s.lastCheckedBlock < s.lastLogBlockNumber && time.Since(s.lastLogTime) > quietDelay {
 				err := s.kafkaClient.sendUpdateV3PricesEvent(poolEvent{
@@ -416,7 +433,7 @@ func (s *rpcEventsCollector) requireSwapEventsFromBlock(ctx context.Context, blo
 			fmt.Println("Error quering logs: ", err)
 			// if strings.Contains(err.Error(), "query exceeds max results") || strings.Contains(err.Error(), "range is over limit") {
 			time.Sleep(1)
-			return s.requireSwapEventsFromBlock(ctx, blockNumber, currentHeadBlockNumber, chunksCount+1)
+			return s.requireSwapEventsFromBlock(ctx, blockNumber, currentHeadBlockNumber, chunksCount*2)
 			// }
 
 			// return nil, err

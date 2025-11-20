@@ -4,155 +4,191 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/alexkalak/go_market_analyze/common/helpers"
 	"github.com/alexkalak/go_market_analyze/common/models"
 )
 
-var bTen = big.NewInt(10)
-
-type usdAmountProvidedToPrice struct {
-	TokenAmount *big.Int
-	Price       *big.Float
-}
-
-type tokenWithUSDPrice struct {
-	Token                 models.Token
-	USDPriceAmountToPrice []usdAmountProvidedToPrice
-}
-
-func (t *tokenWithUSDPrice) getTotalTokenAmount() *big.Int {
-	total := big.NewInt(0)
-	for _, amount2Price := range t.USDPriceAmountToPrice {
-		total.Add(total, amount2Price.TokenAmount)
-	}
-
-	return total
-}
-func (t *tokenWithUSDPrice) getTotalUSDAmountInt() *big.Int {
-	totalAmountInUSD := big.NewFloat(0)
-
-	for _, amount2Price := range t.USDPriceAmountToPrice {
-		totalAmountInUSD.Add(totalAmountInUSD, new(big.Float).Mul(new(big.Float).SetInt(amount2Price.TokenAmount), amount2Price.Price))
-	}
-
-	res := new(big.Int)
-	totalAmountInUSD.Int(res)
-
-	return res
-}
-
-func (t *tokenWithUSDPrice) getTotalUSDAmountReal() *big.Float {
-	totalAmountInUSD := big.NewFloat(0)
-
-	for _, amount2Price := range t.USDPriceAmountToPrice {
-		totalAmountInUSD.Add(totalAmountInUSD, new(big.Float).Mul(new(big.Float).SetInt(amount2Price.TokenAmount), amount2Price.Price))
-	}
-
-	decimalsPower := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(t.Token.Decimals)), nil)
-
-	realAmountInUSD := new(big.Float).Quo(totalAmountInUSD, new(big.Float).SetInt(decimalsPower))
-	return realAmountInUSD
-}
-
-func (t *tokenWithUSDPrice) countAverageUSDPrice() *big.Float {
-	totalTokenAmount := new(big.Float).SetInt(t.getTotalTokenAmount())
-	totalAmountInUSD := t.getTotalUSDAmountInt()
-
-	return new(big.Float).Quo(new(big.Float).SetInt(totalAmountInUSD), totalTokenAmount)
-}
-
-func ValidateV2PairsAndGetAverageUSDPriceForTokens(pairs []models.UniswapV2Pair, stableCoins []models.Token) (map[string]*big.Float, map[string]*models.UniswapV2Pair, error) {
-	stableCoinsMap := map[string]models.Token{}
+func ValidateV2PairsAndGetAverageUSDPriceForTokens(
+	chainID uint,
+	allTokens []*models.Token,
+	pairs []models.UniswapV2Pair,
+	stableCoins []*models.Token,
+) ([]*models.Token, map[string]*models.UniswapV2Pair, error) {
+	//Map stable coins (address) -> token
+	stableCoinsMap := map[string]*models.Token{}
 	for _, stableCoin := range stableCoins {
 		stableCoinsMap[stableCoin.Address] = stableCoin
 	}
 
-	tokenList, err := tokenlist.New()
-	if err != nil {
-		return nil, nil, err
+	//Map tokens (address) -> token
+	tokenDataMap := map[string]*models.Token{}
+	for _, token := range allTokens {
+		fileteredImpacts := []*models.TokenPriceImpact{}
+		for _, impact := range token.GetImpacts() {
+			//Remove v3 pool impacts
+			if strings.Contains(impact.ExchangeIdentifier, "v3pool") {
+				continue
+			}
+
+			fileteredImpacts = append(fileteredImpacts, impact)
+		}
+		token.SetImpacts(fileteredImpacts)
+
+		if token.ChainID != chainID {
+			continue
+		}
+
+		tokenDataMap[token.Address] = token
 	}
 
-	tokensMap := map[string]tokenWithUSDPrice{}
-	checkedPairs := map[string]any{}
-	notDustyPairs := map[string]*models.UniswapV2Pair{}
+	definedTokensMap := map[string]*models.Token{}
+	checkedPools := map[string]any{}
+	notDustyPools := map[string]*models.UniswapV2Pair{}
 
-	defineStableTokens(stableCoinsMap, tokensMap)
+	defineStableTokens(stableCoinsMap, definedTokensMap)
 
-	//How much away from stable coin can pairs checking token be
-	checkingDeepness := 100
-	for range checkingDeepness {
+	// How much away from stable coin can pairs checking token be
+	checkingDeepness := 4
+	for i := range checkingDeepness {
+		amountErrs := 0
+		fmt.Println("step: ", i)
+		avoidTokensNew := map[string]any{}
+
 		for _, pair := range pairs {
-			checkPairForDefinedTokens(tokenList, tokensMap, checkedPairs, &pair)
+
+			if pair.Amount0.Cmp(big.NewInt(0)) == 0 || pair.Amount1.Cmp(big.NewInt(0)) == 0 {
+				continue
+			}
+
+			err := checkPairForDefinedTokens(avoidTokensNew, tokenDataMap, definedTokensMap, checkedPools, &pair)
+			if err != nil {
+				amountErrs++
+			}
 			if !pair.IsDusty {
-				if _, ok := notDustyPairs[pair.Address]; !ok {
-					notDustyPairs[pair.Address] = &pair
+				if _, ok := notDustyPools[pair.Address]; !ok {
+					notDustyPools[pair.Address] = &pair
 				}
 			}
 		}
+
+		fmt.Println("Amount err: ", amountErrs)
 	}
 
-	for _, token := range tokensMap {
-		fmt.Printf("(%s) -> %s \n", token.Token.Symbol, token.countAverageUSDPrice().String())
-	}
+	fmt.Println("not dusty pools before checking: ", len(notDustyPools))
 
-	tokenPricesMap := map[string]*big.Float{}
-	for k, v := range tokensMap {
-		tokenPricesMap[k] = v.Token.USDPrice
-	}
+	//Check imitate swap to tell if pool is inactive
+	for key, pair := range notDustyPools {
+		token0, ok1 := definedTokensMap[pair.Token0]
+		token1, ok2 := definedTokensMap[pair.Token1]
 
-	return tokenPricesMap, notDustyPairs, nil
-}
+		if !ok1 || !ok2 {
+			fmt.Println("Not ok")
+			delete(notDustyPools, key)
+			continue
+		}
 
-func defineStableTokens(stableCoinsMap map[string]models.Token, tokensMap map[string]tokenWithUSDPrice) {
-	for _, stableCoin := range stableCoinsMap {
-		tokensMap[stableCoin.Address] = tokenWithUSDPrice{
-			Token: stableCoin,
-			USDPriceAmountToPrice: []usdAmountProvidedToPrice{
-				{
-					TokenAmount: new(big.Int).Exp(big.NewInt(10), big.NewInt(27), nil),
-					Price:       big.NewFloat(1),
-				},
-			},
+		err := UpdateRateFor10USD(pair, token0, token1)
+		if err != nil {
+			fmt.Println(pair.Address, err)
+			delete(notDustyPools, key)
+			continue
 		}
 	}
-}
+	fmt.Println("not dusty pools after checking: ", len(notDustyPools))
 
-func checkPairForDefinedTokens(tokenList *tokenlist.TokenList, tokensMap map[string]tokenWithUSDPrice, checkedPairs map[string]any, pair *models.UniswapV2Pair) {
-	if _, ok := checkedPairs[pair.Address]; ok {
-		return
+	updatedTokens := make([]*models.Token, 0, len(definedTokensMap))
+	for _, v := range definedTokensMap {
+		updatedTokens = append(updatedTokens, v)
 	}
 
-	dt := tokenWithUSDPrice{}
-	dt0, hasDefinedToken0 := tokensMap[pair.Token0]
-	dt1, hasDefinedToken1 := tokensMap[pair.Token1]
+	return updatedTokens, notDustyPools, nil
+}
+
+func defineStableTokens(stableCoinsMap map[string]*models.Token, definedTokensMap map[string]*models.Token) {
+	for _, stableCoin := range stableCoinsMap {
+		fmt.Println("defining: ", stableCoin.Symbol)
+		if len(stableCoin.GetImpacts()) == 0 {
+			fmt.Println("impacts not found")
+			impactValue, _ := new(big.Int).SetString("10000000000000000000000000000", 10)
+
+			impact := &models.TokenPriceImpact{
+				ChainID:            stableCoin.ChainID,
+				USDPrice:           big.NewFloat(1),
+				TokenAddress:       stableCoin.Address,
+				ExchangeIdentifier: models.GetExchangeIdentifierForV3Pool(0, "phantom_pool"),
+				Impact:             impactValue,
+			}
+			stableCoin.SetImpacts([]*models.TokenPriceImpact{impact})
+		}
+		fmt.Println("defined: ", stableCoin.Symbol)
+
+		definedTokensMap[stableCoin.Address] = stableCoin
+	}
+}
+
+func checkPairForDefinedTokens(
+	avoidTokensNew map[string]any,
+	tokenDataMap map[string]*models.Token,
+	definedTokensMap map[string]*models.Token,
+	checkedPairs map[string]any,
+	pair *models.UniswapV2Pair,
+) error {
+	if _, ok := checkedPairs[pair.Address]; ok {
+		return nil
+	}
+
+	dt := &models.Token{}
+	dt0, hasDefinedToken0 := definedTokensMap[pair.Token0]
+	dt1, hasDefinedToken1 := definedTokensMap[pair.Token1]
 	atAddress := ""
 
+	_, avoidDt0 := avoidTokensNew[pair.Token0]
+	_, avoidDt1 := avoidTokensNew[pair.Token1]
+
+	if avoidDt0 && avoidDt1 {
+		return nil
+	}
+
+	isBothDefined := false
 	if hasDefinedToken0 && hasDefinedToken1 {
-		if dt0.getTotalUSDAmountInt().Cmp(dt1.getTotalUSDAmountInt()) > 0 {
+		isBothDefined = true
+		if dt0.GetTotalImpactInUSD().Cmp(dt1.GetTotalImpactInUSD()) > 0 {
 			dt = dt0
-			atAddress = dt1.Token.Address
+			atAddress = dt1.Address
 		} else {
 			dt = dt1
-			atAddress = dt0.Token.Address
+			atAddress = dt0.Address
 		}
 	} else if hasDefinedToken0 {
+		if avoidDt0 {
+			return nil
+		}
+
 		dt = dt0
 		atAddress = pair.Token1
 	} else if hasDefinedToken1 {
+		if avoidDt1 {
+			return nil
+		}
+
 		dt = dt1
 		atAddress = pair.Token0
 	} else {
-		return
+		return nil
 	}
 
-	atData, err := tokenList.GetTokenByAddress(atAddress)
-	if err != nil {
+	isDTZero := pair.Token0 == dt.Address
+
+	// Mark that checked this pair for liquidity
+	atData, ok := tokenDataMap[atAddress]
+	if !ok {
 		fmt.Println("Another token not found ============================================", atAddress, helpers.GetJSONString(pair))
-		return
+		return nil
 	}
 
-	anotherToken := models.Token{
+	at := models.Token{
 		Name:     atData.Name,
 		Symbol:   atData.Symbol,
 		Address:  atData.Address,
@@ -161,91 +197,127 @@ func checkPairForDefinedTokens(tokenList *tokenlist.TokenList, tokensMap map[str
 		Decimals: atData.Decimals,
 	}
 
-	amountOfDefinedToken, realAmountOfDt, err := getCoinAmountInPair(pair, dt.Token.Address, int64(dt.Token.Decimals))
+	exchangable := ExchangableUniswapV2PairRaw{
+		Pair: pair,
+	}
+
+	pair.IsDusty = true
+
+	checkedPairs[pair.Address] = new(any)
+
+	pair.Zfo10USDRate = big.NewFloat(0)
+	pair.NonZfo10USDRate = big.NewFloat(0)
+
+	dtAmountFor10USD := dt.FromUSD(big.NewInt(10))
+
+	atOutFor10USD, err := exchangable.ImitateSwap(dtAmountFor10USD, isDTZero)
 	if err != nil {
-		fmt.Println("Error getting real amoujnt of defined token: ", err)
-		return
+		return err
 	}
 
-	amountOfAnotherToken, realAmountOfAnotherToken, err := getCoinAmountInPair(pair, anotherToken.Address, int64(anotherToken.Decimals))
+	resultAmountOfDt, err := exchangable.ImitateSwap(atOutFor10USD, !isDTZero)
 	if err != nil {
-		fmt.Println("Error getting real amoujnt of usd: ", err)
-		return
+		return err
 	}
 
-	if amountOfAnotherToken.Cmp(big.NewInt(0)) == 0 || amountOfDefinedToken.Cmp(big.NewInt(0)) == 0 {
-		return
+	percent := new(big.Float).Quo(new(big.Float).SetInt(resultAmountOfDt), new(big.Float).SetInt(dtAmountFor10USD))
+	if percent.Cmp(big.NewFloat(0.98)) < 0 {
+		return nil
 	}
 
-	tokenPrice := getPrice(amountOfAnotherToken, amountOfDefinedToken, int64(anotherToken.Decimals), int64(dt.Token.Decimals))
+	tokenRate, err := GetRateForPairReal(pair, at.Address, dt.Decimals, at.Decimals)
+	if err != nil {
+		return err
+	}
 
-	anotherTokenPriceInUSD := new(big.Float).Mul(tokenPrice, dt.countAverageUSDPrice())
-	amountOfDtInUSD := new(big.Float).Mul(dt.countAverageUSDPrice(), realAmountOfDt)
-
-	amountOfAnotherTokenInUSD := new(big.Float).Mul(anotherTokenPriceInUSD, realAmountOfAnotherToken)
+	atUSDPrice := new(big.Float).Mul(tokenRate, dt.USDPrice)
+	if atUSDPrice.Cmp(big.NewFloat(0)) == 0 {
+		return nil
+	}
 
 	// If token already added check if new amount of usd provided by pair is bigger than previous
-	if amountOfDtInUSD.Cmp(big.NewFloat(10000)) > 0 &&
-		amountOfAnotherTokenInUSD.Cmp(big.NewFloat(10000)) > 0 {
+	pair.IsDusty = false
+	if !isBothDefined {
+		avoidTokensNew[at.Address] = new(any)
 
-		checkedPairs[pair.Address] = new(any)
-		pair.IsDusty = false
-
-		if token, ok := tokensMap[anotherToken.Address]; ok {
-			fmt.Printf("adding  amount: %s -> %s, %s -> %s \n", token.getTotalUSDAmountReal().String(), token.Token.USDPrice.String(), amountOfAnotherTokenInUSD.String(), anotherTokenPriceInUSD.String())
-			token.USDPriceAmountToPrice = append(
-				token.USDPriceAmountToPrice,
-				usdAmountProvidedToPrice{
-					TokenAmount: amountOfAnotherToken,
-					Price:       anotherTokenPriceInUSD,
-				},
-			)
-
-			token.Token.USDPrice = token.countAverageUSDPrice()
-			tokensMap[token.Token.Address] = token
-		} else {
-
-			newToken := tokenWithUSDPrice{
-				Token: anotherToken,
-				USDPriceAmountToPrice: []usdAmountProvidedToPrice{
-					{
-						TokenAmount: amountOfAnotherToken,
-						Price:       anotherTokenPriceInUSD,
-					},
-				},
-			}
-
-			newToken.Token.USDPrice = anotherTokenPriceInUSD
-			tokensMap[newToken.Token.Address] = newToken
-		}
 	}
-}
 
-func getPrice(amount0 *big.Int, amount1 *big.Int, dec0 int64, dec1 int64) *big.Float {
-	power0 := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(dec0), nil))
-	power1 := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(dec1), nil))
+	fmt.Printf(
+		"(%s) %s$ -> (%s) %s$ %s \n",
+		dt.Symbol,
+		dt.USDPrice.String(),
+		at.Symbol,
+		atUSDPrice.String(),
+		pair.Address,
+	)
 
-	realAmount0 := new(big.Float).Quo(new(big.Float).SetInt(amount0), power0)
-	realAmount1 := new(big.Float).Quo(new(big.Float).SetInt(amount1), power1)
+	atAmount := pair.Amount0
+	if isDTZero {
+		atAmount = pair.Amount1
+	}
 
-	price := new(big.Float).Quo(realAmount1, realAmount0)
-	return price
-}
+	if token, ok := definedTokensMap[at.Address]; ok {
+		impacts := token.GetImpacts()
+		impactInt := new(big.Int)
+		impactInt = atAmount
 
-func getCoinAmountInPair(pair *models.UniswapV2Pair, tokenAddress string, decimals int64) (*big.Int, *big.Float, error) {
-	tokenAmountInt := new(big.Int)
-	if pair.Token0 == tokenAddress {
-		tokenAmountInt.Set(pair.Amount0)
-	} else if pair.Token1 == tokenAddress {
-		tokenAmountInt.Set(pair.Amount1)
+		impacts = append(
+			impacts,
+			&models.TokenPriceImpact{
+				ChainID:            at.ChainID,
+				USDPrice:           atUSDPrice,
+				TokenAddress:       at.Address,
+				ExchangeIdentifier: models.GetExchangeIdentifierForV2Pair(pair.ChainID, pair.Address),
+				Impact:             impactInt, //in usd impact
+			},
+		)
+
+		token.SetImpacts(impacts)
+		definedTokensMap[token.Address] = token
 	} else {
-		return nil, nil, errors.New("no token in pair")
+		impactInt := new(big.Int)
+		impactInt = atAmount
+
+		impact := models.TokenPriceImpact{
+			ChainID:            at.ChainID,
+			USDPrice:           atUSDPrice,
+			TokenAddress:       at.Address,
+			ExchangeIdentifier: models.GetExchangeIdentifierForV2Pair(pair.ChainID, pair.Address),
+			Impact:             impactInt, //in usd impact
+		}
+		at.SetImpacts([]*models.TokenPriceImpact{&impact})
+		definedTokensMap[at.Address] = &at
 	}
-	tokenAmount := new(big.Float).SetInt(tokenAmountInt)
 
-	bDecimals := big.NewInt(decimals)
-	pow := new(big.Int).Exp(bTen, bDecimals, nil)
-	powF := new(big.Float).SetInt(pow)
+	return nil
+}
 
-	return tokenAmountInt, tokenAmount.Quo(tokenAmount, powF), nil
+var bTen = big.NewInt(10)
+
+func GetRateForPairReal(pair *models.UniswapV2Pair, tokenAddress string, tokenOut int, tokenIn int) (*big.Float, error) {
+	ex := ExchangableUniswapV2PairRaw{
+		Pair: pair,
+	}
+
+	// always token1/token0
+	rate := ex.GetRate(true)
+
+	if pair.Token0 == tokenAddress {
+		dtDecimalsPow := new(big.Int).Exp(bTen, big.NewInt(int64(tokenOut)), nil)
+		tokenDecimalsPow := new(big.Int).Exp(bTen, big.NewInt(int64(tokenIn)), nil)
+
+		rate.Mul(rate, new(big.Float).SetInt(tokenDecimalsPow))
+		rate.Quo(rate, new(big.Float).SetInt(dtDecimalsPow))
+
+		return rate, nil
+	} else if pair.Token1 == tokenAddress {
+		dtDecimalsPow := new(big.Int).Exp(bTen, big.NewInt(int64(tokenOut)), nil)
+		tokenDecimalsPow := new(big.Int).Exp(bTen, big.NewInt(int64(tokenIn)), nil)
+
+		rate.Mul(rate, new(big.Float).SetInt(dtDecimalsPow))
+		rate.Quo(rate, new(big.Float).SetInt(tokenDecimalsPow))
+		rate.Quo(big.NewFloat(1), rate)
+		return rate, nil
+	}
+	return nil, errors.New("cannot get price, token not found in pool")
 }
